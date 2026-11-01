@@ -1,0 +1,12 @@
+.git
+.env
+.env.*
+__pycache__
+*.py[cod]
+.venv
+venv
+.DS_Store
+media
+uploads
+staticfiles
+work
