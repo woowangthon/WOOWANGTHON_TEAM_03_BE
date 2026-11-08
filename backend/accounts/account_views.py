@@ -1,4 +1,4 @@
-"""서비스 관리자의 일반 사용자 발급 API. 공개 회원가입은 제공하지 않는다."""
+"""서비스 관리자의 일반 사용자 목록·검색·발급 API."""
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
@@ -12,6 +12,7 @@ from rest_framework.response import Response
 
 from .permissions import IsServiceAdmin
 from .roles import USER_GROUP_NAME
+from .user_list import get_user_list_response
 from .validators import username_validator, validate_full_name
 from .views import AuthAPIView, error_body
 
@@ -58,7 +59,7 @@ class CreateUserSerializer(serializers.Serializer):
 
 @method_decorator(sensitive_post_parameters("password"), name="dispatch")
 class CreateUserView(AuthAPIView):
-    """ID·이름·초기 비밀번호를 받아 일반 사용자를 발급하고 공개 프로필만 반환한다."""
+    """기존 발급 경로에서 GET 목록 조회와 POST 계정 발급을 제공한다."""
 
     permission_classes = [IsServiceAdmin]
 
@@ -68,6 +69,9 @@ class CreateUserView(AuthAPIView):
             # 입력값을 되돌려 주지 않고 필드별 검증 메시지만 제공한다.
             response.data["error"]["fields"] = exc.detail
         return response
+
+    def get(self, request):
+        return get_user_list_response(request.query_params)
 
     def post(self, request):
         serializer = CreateUserSerializer(data=request.data)

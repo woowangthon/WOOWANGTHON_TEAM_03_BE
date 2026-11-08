@@ -238,9 +238,13 @@ class CreateUserAPITests(TestCase):
         self.assert_error(response, 403, "CSRF_FAILED")
         self.assertFalse(get_user_model().objects.filter(username=self.payload["username"]).exists())
 
-    def test_only_post_json_is_supported(self):
+    def test_creation_requires_json_and_put_is_not_supported(self):
         self.login_as(self.admin)
-        self.assert_error(self.client.get(self.url), 405, "METHOD_NOT_ALLOWED")
+        response = self.client.put(
+            self.url, data=json.dumps(self.payload), content_type="application/json",
+            HTTP_X_CSRFTOKEN=self.csrf_token(),
+        )
+        self.assert_error(response, 405, "METHOD_NOT_ALLOWED")
         for raw, media_type, status, code in (
             ("{", "application/json", 400, "INVALID_JSON"),
             ("[]", "application/json", 400, "INVALID_INPUT"),
