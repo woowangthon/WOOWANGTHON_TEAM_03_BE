@@ -1,6 +1,6 @@
 from django.db import DatabaseError, connection
 from django.http import HttpResponse, JsonResponse
-from django.urls import path
+from django.urls import include, path
 from django.views.decorators.http import require_safe
 
 
@@ -33,6 +33,8 @@ def health(request):
 
 
 urlpatterns = [
+    path("api/v1/auth/", include("accounts.urls")),
+    path("api/v1/admin/", include("accounts.admin_urls")),
     path("", index),
     path("health/", health),
 ]

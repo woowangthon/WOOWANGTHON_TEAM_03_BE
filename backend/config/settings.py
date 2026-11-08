@@ -1,4 +1,4 @@
-"""Local development settings. Review deployment settings before publishing."""
+"""로컬 개발 설정. 외부 공개 전 배포 설정을 별도로 확인한다."""
 import os
 from pathlib import Path
 
@@ -20,7 +20,11 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "rest_framework",
+    "accounts.apps.AccountsConfig",
+    "gateway.apps.GatewayConfig",
 ]
+
+AUTH_USER_MODEL = "accounts.User"
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -64,7 +68,7 @@ DATABASES = {
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
-    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
+    {"NAME": "accounts.validators.ServicePasswordValidator"},
     {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
@@ -74,7 +78,7 @@ REST_FRAMEWORK = {
         "rest_framework.authentication.SessionAuthentication",
     ],
     "DEFAULT_PERMISSION_CLASSES": [
-        "rest_framework.permissions.IsAuthenticated",
+        "accounts.permissions.IsServiceMember",
     ],
 }
 
@@ -84,3 +88,17 @@ USE_I18N = True
 USE_TZ = True
 STATIC_URL = "static/"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+
+# 현재 로컬 환경은 HTTP를 사용한다. HTTPS 배포 시 DJANGO_COOKIE_SECURE=1을 설정한다.
+SESSION_ENGINE = "django.contrib.sessions.backends.db"
+SESSION_COOKIE_AGE = 8 * 60 * 60
+SESSION_SAVE_EVERY_REQUEST = False
+SESSION_EXPIRE_AT_BROWSER_CLOSE = False
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = "Lax"
+SESSION_COOKIE_SECURE = os.environ.get("DJANGO_COOKIE_SECURE", "0") == "1"
+CSRF_COOKIE_HTTPONLY = True
+CSRF_COOKIE_SAMESITE = "Lax"
+CSRF_COOKIE_SECURE = SESSION_COOKIE_SECURE
+CSRF_FAILURE_VIEW = "accounts.views.csrf_failure"
