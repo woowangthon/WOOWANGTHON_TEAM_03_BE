@@ -1,4 +1,4 @@
-"""PDF·의뢰 접수 API. 일반 사용자 응답에는 검사 원문·대응표·AI 원답을 포함하지 않는다."""
+"""PDF·의뢰 API. 본인 상세에서 완성 답변만 제공하고 검사 원문·복원 대응표는 제외한다."""
 
 from django.core.exceptions import RequestDataTooBig, SuspiciousFileOperation
 from django.db import DatabaseError
@@ -40,6 +40,22 @@ def intake_response(record, document):
             "file_url": reverse("gateway:request-file", kwargs={"request_id": record.pk}),
         },
     }
+
+
+def request_detail_response(record, document):
+    # AI 저장자는 복원이 끝난 최종 답변을 저장한 뒤에만 completed로 확정해야 한다.
+    # 조회 중 상태를 바꾸거나 답변 생성·외부 전송을 다시 실행하지 않는다.
+    answer = None
+    if record.state == Request.State.COMPLETED:
+        if record.answer_text is None or not record.answer_text.strip():
+            raise IntakeError(
+                "ANSWER_NOT_AVAILABLE", "답변을 불러오지 못했습니다. 잠시 후 다시 확인해 주세요.", 503,
+            )
+        answer = record.answer_text
+    data = intake_response(record, document)
+    data["answer_text"] = answer
+    data["finished_at"] = record.finished_at.isoformat() if record.finished_at else None
+    return data
 
 
 class IntakeAPIView(AuthAPIView):
@@ -88,18 +104,20 @@ class RequestIntakeView(IntakeAPIView):
 
 
 class RequestIntakeDetailView(IntakeAPIView):
-    """일반 이용자 본인의 접수 상태 조회와 준비 중 의뢰문 수정만 허용한다."""
+    """본인 의뢰·상태·완성 답변 조회와 준비 중 의뢰문 수정을 허용한다."""
 
     permission_classes = [IsServiceUser]
 
     def get(self, request, request_id):
         try:
-            record = Request.objects.select_related("document").get(
+            record = Request.objects.select_related("document").defer(
+                "input_text", "document__extracted_text",
+            ).get(
                 pk=request_id, user=request.user, hidden_at__isnull=True,
             )
         except Request.DoesNotExist:
             raise IntakeError("REQUEST_NOT_FOUND", "의뢰를 찾을 수 없습니다.", 404) from None
-        return Response({"request": intake_response(record, getattr(record, "document", None))})
+        return Response({"request": request_detail_response(record, getattr(record, "document", None))})
 
     def patch(self, request, request_id):
         values = single_values(request.data, {"instruction"})

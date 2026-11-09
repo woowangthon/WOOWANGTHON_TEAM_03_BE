@@ -207,7 +207,7 @@ class RequestIntakeAPITests(TestCase):
         record.refresh_from_db()
         self.assertEqual(record.updated_at, timestamp)
 
-    def test_current_intake_details_exclude_ai_and_masking_content(self):
+    def test_intake_details_include_final_answer_but_exclude_internal_content(self):
         record = Request.objects.create(
             user=self.member, client_request_key=uuid4(), instruction="의뢰문",
             input_text="검사 원문", state="completed", answer_text="최종 답변",
@@ -216,7 +216,8 @@ class RequestIntakeAPITests(TestCase):
         response = self.client.get(self.detail_url(record.pk))
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["request"]["state"], "completed")
-        for field in ("input_text", "answer_text", "warning_codes", "error_code", "intake_fingerprint"):
+        self.assertEqual(response.json()["request"]["answer_text"], "최종 답변")
+        for field in ("input_text", "warning_codes", "error_code", "intake_fingerprint"):
             self.assertNotIn(field, response.json()["request"])
 
     def test_other_users_and_admin_cannot_read_or_edit_others_intake(self):
