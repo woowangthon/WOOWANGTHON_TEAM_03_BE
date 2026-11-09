@@ -7,6 +7,7 @@ from accounts.views import AuthAPIView
 
 from .admin_request_detail import get_admin_request_detail_response
 from .admin_request_list import get_admin_request_list_response
+from .admin_statistics import get_admin_statistics_response
 
 
 class AdminRequestAPIView(AuthAPIView):
@@ -22,6 +23,11 @@ class AdminRequestAPIView(AuthAPIView):
 class AdminRequestListView(AdminRequestAPIView):
     def get(self, request):
         return get_admin_request_list_response(request.query_params)
+
+
+class AdminStatisticsView(AdminRequestAPIView):
+    def get(self, request):
+        return get_admin_statistics_response(request.query_params)
 
 
 class AdminRequestDetailView(AdminRequestAPIView):

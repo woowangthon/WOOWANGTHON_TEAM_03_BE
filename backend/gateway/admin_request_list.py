@@ -15,7 +15,7 @@ from accounts.views import error_body
 from .models import DetectionSpan, Request, SensitiveTerm
 
 
-class AdminRequestListQuerySerializer(serializers.Serializer):
+class AdminRequestFilterSerializer(serializers.Serializer):
     q = serializers.CharField(max_length=100, allow_blank=True, default="")
     request_id = serializers.UUIDField(required=False)
     user_id = serializers.UUIDField(required=False)
@@ -24,8 +24,6 @@ class AdminRequestListQuerySerializer(serializers.Serializer):
     state = serializers.ChoiceField(choices=Request.State.values, required=False)
     processing_route = serializers.ChoiceField(choices=Request.ProcessingRoute.values, required=False)
     detection_label = serializers.ChoiceField(choices=SensitiveTerm.Label.values, required=False)
-    page = serializers.IntegerField(min_value=1, max_value=2147483647, default=1)
-    page_size = serializers.IntegerField(min_value=1, max_value=100, default=20)
 
     def to_internal_value(self, data):
         if set(data) - set(self.fields):
@@ -50,7 +48,12 @@ class AdminRequestListQuerySerializer(serializers.Serializer):
         return attrs
 
 
-def get_admin_request_history(filters):
+class AdminRequestListQuerySerializer(AdminRequestFilterSerializer):
+    page = serializers.IntegerField(min_value=1, max_value=2147483647, default=1)
+    page_size = serializers.IntegerField(min_value=1, max_value=100, default=20)
+
+
+def get_filtered_admin_requests(filters):
     # 감사 조회는 사용자의 숨김 처리·계정 비활성화·현재 역할에 따라 과거 기록을 제외하지 않는다.
     records = Request.objects.all()
     for field in ("request_id", "user_id", "state", "processing_route"):
@@ -73,6 +76,11 @@ def get_admin_request_history(filters):
             request_id=OuterRef("pk"), sensitive_term__label=filters["detection_label"],
         )
         records = records.filter(inspection_status=Request.InspectionStatus.COMPLETE).filter(Exists(matching_spans))
+    return records
+
+
+def get_admin_request_history(filters):
+    records = get_filtered_admin_requests(filters)
     # 대용량 원문·AI 답변·마스킹 원값은 목록 쿼리에서 읽지 않는다.
     return records.order_by("-created_at", "-request_id").values(
         "request_id", "user_id", "user__username", "user__full_name", "created_at", "finished_at",
