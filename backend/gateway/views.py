@@ -18,6 +18,7 @@ from .intake_service import create_intake, update_instruction
 from .intake_validation import IntakeError, instruction_value, single_values, validate_intake
 from .models import Document, Request
 from .parsers import LimitedJSONParser
+from .request_list import get_request_list_response
 from .storage import document_storage
 
 
@@ -63,8 +64,13 @@ class IntakeAPIView(AuthAPIView):
 
 
 class RequestIntakeView(IntakeAPIView):
+    """기존 접수 경로에서 GET 본인 이력 조회와 POST 신규 접수를 제공한다."""
+
     permission_classes = [IsServiceUser]
     parser_classes = [LimitedJSONParser, MultiPartParser]
+
+    def get(self, request):
+        return get_request_list_response(request.user, request.query_params)
 
     def post(self, request):
         data = request.data

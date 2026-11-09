@@ -416,7 +416,10 @@ class RequestIntakeAPITests(TestCase):
         response = self.client.post(self.url, "{}", content_type="application/json",
                                     HTTP_ORIGIN="https://untrusted.example", **self.headers())
         self.assert_error(response, 403, "CSRF_FAILED")
-        self.assert_error(self.client.get(self.url), 405, "METHOD_NOT_ALLOWED")
+        self.assert_error(
+            self.client.put(self.url, "{}", content_type="application/json", **self.headers()),
+            405, "METHOD_NOT_ALLOWED",
+        )
         self.assert_error(self.client.post(self.url, "{", content_type="application/json", **self.headers()),
                           400, "INVALID_JSON")
         self.assert_error(self.client.post(self.url, "text", content_type="text/plain", **self.headers()),
