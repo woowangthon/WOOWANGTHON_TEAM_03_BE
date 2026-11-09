@@ -89,6 +89,20 @@ USE_TZ = True
 STATIC_URL = "static/"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+# 원본은 공개 MEDIA_URL로 제공하지 않는다. Docker에서는 별도 영속 볼륨을 사용한다.
+PRIVATE_DOCUMENT_ROOT = Path(os.environ.get("PRIVATE_DOCUMENT_ROOT", BASE_DIR / "private_documents"))
+PDF_MAX_BYTES = 10_000_000
+PDF_MAX_PAGES = 20
+INSTRUCTION_MAX_CHARS = 4_000
+INPUT_MAX_CHARS = 60_000
+FILE_UPLOAD_MAX_MEMORY_SIZE = 256 * 1024
+DATA_UPLOAD_MAX_MEMORY_SIZE = 64 * 1024
+FILE_UPLOAD_HANDLERS = [
+    "gateway.uploads.LimitedPDFUploadHandler",
+    "django.core.files.uploadhandler.MemoryFileUploadHandler",
+    "django.core.files.uploadhandler.TemporaryFileUploadHandler",
+]
+
 
 # 현재 로컬 환경은 HTTP를 사용한다. HTTPS 배포 시 DJANGO_COOKIE_SECURE=1을 설정한다.
 SESSION_ENGINE = "django.contrib.sessions.backends.db"

@@ -58,6 +58,8 @@ class Request(ValidatedModel):
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="requests"
     )
     client_request_key = models.UUIDField()
+    # 최초 접수 내용을 비교한다. 의뢰문 수정 뒤에도 원래 접수의 재전송을 식별한다.
+    intake_fingerprint = models.CharField(max_length=64, blank=True, default="", editable=False)
     # PDF만 먼저 제출할 수 있다. AI 처리 시작 조건은 API에서 별도로 검사한다.
     instruction = models.TextField(blank=True, default="")
     input_text = models.TextField(blank=True, default="")
@@ -116,9 +118,9 @@ class Request(ValidatedModel):
             errors["answer_text"] = "정상 완료된 최종 답변만 저장할 수 있습니다."
         if not self._state.adding:
             previous = type(self).objects.get(pk=self.pk)
-            for field in ("user_id", "client_request_key"):
+            for field in ("user_id", "client_request_key", "intake_fingerprint"):
                 if getattr(previous, field) != getattr(self, field):
-                    errors[field.removesuffix("_id")] = "요청의 소유자와 중복 방지 키는 변경할 수 없습니다."
+                    errors[field.removesuffix("_id")] = "요청의 소유자와 최초 접수 식별 정보는 변경할 수 없습니다."
             if previous.state != self.State.PREPARING:
                 for field in ("instruction", "input_text"):
                     if getattr(previous, field) != getattr(self, field):
@@ -130,6 +132,7 @@ class Request(ValidatedModel):
 class Document(ValidatedModel):
     class ExtractionStatus(models.TextChoices):
         UPLOADING = "uploading", "업로드 중"
+        PENDING = "pending", "텍스트 추출 대기"
         EXTRACTING = "extracting", "텍스트 추출 중"
         READY = "ready", "추출 완료"
         FAILED = "failed", "업로드 또는 추출 실패"

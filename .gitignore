@@ -13,5 +13,6 @@ db.sqlite3
 db.sqlite3-*
 media/
 uploads/
+private_documents/
 staticfiles/
 *.log
