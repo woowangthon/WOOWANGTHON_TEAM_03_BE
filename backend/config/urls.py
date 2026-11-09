@@ -33,6 +33,7 @@ def health(request):
 
 
 urlpatterns = [
+    path("api/v1/requests/", include("gateway.urls")),
     path("api/v1/auth/", include("accounts.urls")),
     path("api/v1/admin/", include("accounts.admin_urls")),
     path("", index),

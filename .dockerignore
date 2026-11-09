@@ -8,5 +8,6 @@ venv
 .DS_Store
 media
 uploads
+private_documents
 staticfiles
 work

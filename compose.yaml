@@ -9,10 +9,12 @@ services:
     environment:
       POSTGRES_HOST: db
       POSTGRES_PORT: "5432"
+      PRIVATE_DOCUMENT_ROOT: /var/lib/ai-gateway/documents
     ports:
       - "127.0.0.1:8000:8000"
     volumes:
       - ./backend:/app
+      - private_documents:/var/lib/ai-gateway/documents
     depends_on:
       db:
         condition: service_healthy
@@ -36,3 +38,4 @@ services:
 
 volumes:
   database_data:
+  private_documents:
