@@ -14,6 +14,15 @@ class IsServiceMember(BasePermission):
         return get_service_role(request.user) is not None
 
 
+class IsServiceUser(BasePermission):
+    """채팅용 API는 활성 상태인 일반 이용자만 허용한다."""
+
+    message = "일반 이용자만 사용할 수 있습니다."
+
+    def has_permission(self, request, view):
+        return get_service_role(request.user) == "user"
+
+
 class IsServiceAdmin(BasePermission):
     """Django 운영 권한과 구분하여 서비스 관리자 그룹만 허용한다."""
 

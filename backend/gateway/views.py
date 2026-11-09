@@ -10,7 +10,7 @@ from rest_framework import exceptions
 from rest_framework.parsers import MultiPartParser
 from rest_framework.response import Response
 
-from accounts.permissions import IsServiceMember
+from accounts.permissions import IsServiceMember, IsServiceUser
 from accounts.roles import get_service_role
 from accounts.views import AuthAPIView, error_body
 
@@ -63,6 +63,7 @@ class IntakeAPIView(AuthAPIView):
 
 
 class RequestIntakeView(IntakeAPIView):
+    permission_classes = [IsServiceUser]
     parser_classes = [LimitedJSONParser, MultiPartParser]
 
     def post(self, request):
@@ -81,7 +82,9 @@ class RequestIntakeView(IntakeAPIView):
 
 
 class RequestIntakeDetailView(IntakeAPIView):
-    """접수 상태 재조회와 준비 중 의뢰문 수정. 관리자도 타인의 의뢰문을 수정하지 못한다."""
+    """일반 이용자 본인의 접수 상태 조회와 준비 중 의뢰문 수정만 허용한다."""
+
+    permission_classes = [IsServiceUser]
 
     def get(self, request, request_id):
         try:

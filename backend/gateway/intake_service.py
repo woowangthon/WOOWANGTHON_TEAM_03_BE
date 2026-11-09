@@ -20,8 +20,8 @@ from .storage import document_storage
 logger = logging.getLogger(__name__)
 
 
-def locked_member(authenticated_user):
-    """비활성화·비밀번호 변경과 접수가 경합해도 최신 계정 상태로 판단한다."""
+def locked_request_user(authenticated_user):
+    """최신 계정 상태와 일반 이용자 권한을 확인한 뒤 접수·수정을 허용한다."""
     try:
         user = get_user_model().objects.select_for_update().get(pk=authenticated_user.pk)
     except get_user_model().DoesNotExist:
@@ -30,7 +30,7 @@ def locked_member(authenticated_user):
         user.get_session_auth_hash(), authenticated_user.get_session_auth_hash()
     ):
         raise exceptions.NotAuthenticated()
-    if get_service_role(user) is None:
+    if get_service_role(user) != "user":
         raise exceptions.PermissionDenied()
     return user
 
@@ -53,7 +53,7 @@ def create_intake(authenticated_user, key, instruction, pdf, fingerprint):
     try:
         with transaction.atomic():
             # 같은 사용자의 접수를 직렬화하여 동일 키의 동시 요청도 한 건만 생성한다.
-            user = locked_member(authenticated_user)
+            user = locked_request_user(authenticated_user)
             existing = Request.objects.select_related("document").filter(
                 user=user, client_request_key=key,
             ).first()
@@ -91,7 +91,7 @@ def create_intake(authenticated_user, key, instruction, pdf, fingerprint):
 def update_instruction(authenticated_user, request_id, instruction):
     try:
         with transaction.atomic():
-            user = locked_member(authenticated_user)
+            user = locked_request_user(authenticated_user)
             try:
                 record = Request.objects.select_for_update().get(
                     pk=request_id, user=user, hidden_at__isnull=True,

@@ -16,9 +16,11 @@ from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 from pypdf import PdfWriter
+from rest_framework.exceptions import PermissionDenied
 
 from accounts.roles import ADMIN_GROUP_NAME, USER_GROUP_NAME
 
+from .intake_service import create_intake, update_instruction
 from .models import Document, Request
 from .storage import document_storage
 
@@ -219,11 +221,55 @@ class RequestIntakeAPITests(TestCase):
 
     def test_other_users_and_admin_cannot_read_or_edit_others_intake(self):
         request_id = self.post_pdf().json()["request"]["request_id"]
-        for actor in (self.other, self.admin):
-            self.client.force_login(actor)
-            self.assert_error(self.client.get(self.detail_url(request_id)), 404, "REQUEST_NOT_FOUND")
-            self.assert_error(self.update(request_id, {"instruction": "변경 시도"}), 404, "REQUEST_NOT_FOUND")
+        for actor, status, code in (
+            (self.other, 404, "REQUEST_NOT_FOUND"),
+            (self.admin, 403, "FORBIDDEN"),
+        ):
+            with self.subTest(actor=actor.username):
+                self.client.force_login(actor)
+                self.assert_error(self.client.get(self.detail_url(request_id)), status, code)
+                self.assert_error(self.update(request_id, {"instruction": "변경 시도"}), status, code)
         self.assertEqual(Request.objects.get().instruction, "")
+
+    def test_admin_cannot_submit_text_or_pdf_intake(self):
+        self.client.force_login(self.admin)
+        self.assert_error(self.post_json({
+            "client_request_key": str(uuid4()), "instruction": "관리자 접수 시도",
+        }), 403, "FORBIDDEN")
+        self.assert_error(self.post_pdf(instruction="관리자 PDF 접수 시도"), 403, "FORBIDDEN")
+        self.assertEqual(Request.objects.count(), 0)
+        self.assertEqual(Document.objects.count(), 0)
+        self.assertEqual(self.stored_files(), [])
+
+    def test_admin_cannot_read_or_update_own_legacy_intake(self):
+        record = Request.objects.create(
+            user=self.admin, client_request_key=uuid4(), instruction="기존 의뢰문",
+        )
+        self.client.force_login(self.admin)
+        for request_id in (record.pk, uuid4()):
+            with self.subTest(request_id=request_id):
+                self.assert_error(self.client.get(self.detail_url(request_id)), 403, "FORBIDDEN")
+                self.assert_error(self.update(request_id, {"instruction": "변경 시도"}), 403, "FORBIDDEN")
+        record.refresh_from_db()
+        self.assertEqual(record.instruction, "기존 의뢰문")
+
+    def test_intake_service_rechecks_role_before_writing(self):
+        record = Request.objects.create(
+            user=self.member, client_request_key=uuid4(), instruction="기존 의뢰문",
+        )
+        # API 권한 확인 후 역할이 바뀌어도 서비스에서 다시 거부해야 한다.
+        self.member.groups.set([self.admin_group])
+        content = pdf_bytes()
+        pdf = {"name": "fictional.pdf", "content": content, "size_bytes": len(content), "page_count": 1}
+        with self.assertRaises(PermissionDenied):
+            create_intake(self.member, uuid4(), "신규 접수", pdf, "a" * 64)
+        with self.assertRaises(PermissionDenied):
+            update_instruction(self.member, record.pk, "변경 시도")
+        record.refresh_from_db()
+        self.assertEqual(record.instruction, "기존 의뢰문")
+        self.assertEqual(Request.objects.count(), 1)
+        self.assertEqual(Document.objects.count(), 0)
+        self.assertEqual(self.stored_files(), [])
 
     def test_pdf_view_allows_owner_and_admin_but_not_other_user(self):
         content = pdf_bytes()
