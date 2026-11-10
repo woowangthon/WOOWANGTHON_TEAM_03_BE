@@ -21,6 +21,7 @@ from .intake_validation import IntakeError, instruction_value, single_values, va
 from .models import Document, Request
 from .parsers import LimitedJSONParser
 from .request_list import get_request_list_response
+from .request_visibility import hide_request
 from .storage import document_storage
 
 
@@ -126,6 +127,28 @@ class RequestIntakeDetailView(IntakeAPIView):
         instruction = instruction_value(values.get("instruction"))
         record, document = update_instruction(request.user, request_id, instruction)
         return Response({"request": intake_response(record, document)})
+
+
+class RequestHideView(IntakeAPIView):
+    """본인 이력을 숨긴다. 성공과 반복 요청 모두 본문 없는 204를 반환한다."""
+
+    permission_classes = [IsServiceUser]
+
+    def post(self, request, request_id):
+        if request.query_params:
+            raise exceptions.ValidationError("이 API는 조회 조건을 받지 않습니다.")
+        # 폼이 CSRF 단계에서 소비되어 빈 입력처럼 처리되는 경우도 명시적으로 거부한다.
+        media_type = (request.content_type or "").split(";", 1)[0].strip().lower()
+        if media_type != "application/json":
+            raise exceptions.UnsupportedMediaType(request.content_type)
+        data = request.data
+        if not isinstance(data, dict) or data:
+            raise exceptions.ValidationError("본문은 빈 JSON 객체로 보내 주세요.")
+        try:
+            hide_request(request.user, request_id)
+        except DatabaseError:
+            raise IntakeError("REQUEST_HIDE_FAILED", "이력을 숨기지 못했습니다. 잠시 후 다시 시도해 주세요.", 503) from None
+        return Response(status=204)
 
 
 class RequestApprovalDecisionView(IntakeAPIView):
