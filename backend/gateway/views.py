@@ -20,6 +20,7 @@ from .intake_service import create_intake, update_instruction
 from .intake_validation import IntakeError, instruction_value, single_values, validate_intake
 from .models import Document, Request
 from .parsers import LimitedJSONParser
+from .processing import launch, processing_available, run_external
 from .request_list import get_request_list_response
 from .storage import document_storage
 
@@ -32,8 +33,8 @@ def intake_response(record, document):
         "state": record.state,
         "created_at": record.created_at.isoformat(),
         "updated_at": record.updated_at.isoformat(),
-        # 처리 시작 API와 AI 작업자는 아직 연결하지 않았다.
-        "processing_available": False,
+        # 처리 시작 API(processing_views.RequestStartView)를 부를 수 있는 상태인지.
+        "processing_available": processing_available(record, document),
         "document": None if document is None else {
             "original_filename": document.original_filename,
             "size_bytes": document.size_bytes,
@@ -145,6 +146,9 @@ class RequestApprovalDecisionView(IntakeAPIView):
             result = decide_approval(request.user, request_id, decision)
         except DatabaseError:
             raise IntakeError("APPROVAL_SAVE_FAILED", "선택을 저장하지 못했습니다. 다시 확인해 주세요.", 503) from None
+        if result["state"] == Request.State.QUEUED and result["approval"]["status"] == Request.ApprovalStatus.APPROVED:
+            # 승인 기록은 커밋됐다. 실제 외부 전송은 AI 작업자(processing.run_external)가 한다.
+            launch(run_external, request_id)
         return Response({"request": result})
 
 

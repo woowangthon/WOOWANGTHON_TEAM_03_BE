@@ -103,6 +103,14 @@ FILE_UPLOAD_HANDLERS = [
     "django.core.files.uploadhandler.TemporaryFileUploadHandler",
 ]
 
+# 모델 서비스(AI 저장소 FastAPI) 연결. 값은 .env 로 준다. 비어 있으면 처리 시작 뒤 검사가 MODEL_UNAVAILABLE 로 실패한다.
+MODEL_SERVICE_URL = os.environ.get("MODEL_SERVICE_URL", "")
+MODEL_API_KEY = os.environ.get("MODEL_API_KEY", "")
+# AI 처리 실행 방식: thread(요청 처리 프로세스의 배경 스레드, 단일 프로세스 전제) 또는 command(manage.py process_requests --loop 가 처리)
+GATEWAY_WORKER = os.environ.get("GATEWAY_WORKER", "thread")
+GATEWAY_LOCAL_MAX_TOKENS = 1024   # 사내 답변 생성 상한. 넘어서 잘리면 실패로 남긴다.
+GATEWAY_STUCK_MINUTES = 15        # 검사 중·처리 중에 이보다 오래 머물면 process_requests 가 실패 처리
+
 
 # 현재 로컬 환경은 HTTP를 사용한다. HTTPS 배포 시 DJANGO_COOKIE_SECURE=1을 설정한다.
 SESSION_ENGINE = "django.contrib.sessions.backends.db"

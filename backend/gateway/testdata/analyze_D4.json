@@ -1,0 +1,83 @@
+{
+  "note": "D4 외부 전송 · 그대로 — 기대 결정 external — 외부 전송 · 구간 없음 · 그대로 전송",
+  "http_status": 200,
+  "request": {
+    "text": "AS9100D 8.5.1 '생산 및 서비스 제공의 관리' 요구사항을 아래 원문 요약을 바탕으로 우리 검사 절차서에 반영할 점검표(체크리스트)로 만들어 주세요. 항목은 10개 이내로.\n\n(원문 요약) 조직은 관리된 조건에서 생산을 수행해야 한다. 관리된 조건에는 제품 특성과 달성해야 할 결과를 정의한 문서화된 정보의 가용성, 적절한 모니터링 및 측정 자원의 가용성과 사용, 공정 산출물이 합격 기준을 충족함을 검증하는 활동, 적절한 인프라와 환경, 적격한 인원의 배치, 특수 공정의 유효성 확인, 인적 오류 방지 조치, 인도 활동과 인도 후 활동이 포함된다. 항공우주 요구사항으로 생산 공정 검증(First Article Inspection), 작업 이전(work transfer) 관리, 키 특성(key characteristics) 관리가 추가된다.",
+    "request_id": "sample-D4",
+    "doc_name": "D4.pdf",
+    "policy": {
+      "mask_person": false,
+      "mask_company": true
+    }
+  },
+  "response": {
+    "request_id": "sample-D4",
+    "doc_name": "D4.pdf",
+    "text_chars": 421,
+    "body_offset": 0,
+    "mode": "full",
+    "spans": [],
+    "rule_spans": [],
+    "llm_spans": [],
+    "sensitive": false,
+    "route": {
+      "choice": "external",
+      "probabilities": {
+        "local": 0.2834,
+        "external": 0.629,
+        "block": 0.0877
+      },
+      "confidence": 0.4434,
+      "seconds": 1.209,
+      "input_tokens": 376
+    },
+    "route_error": null,
+    "decision": {
+      "action": "external",
+      "needs_approval": false,
+      "reasons": [
+        "tev1 external 0.63"
+      ],
+      "warnings": []
+    },
+    "mask": {
+      "masked": "AS9100D 8.5.1 '생산 및 서비스 제공의 관리' 요구사항을 아래 원문 요약을 바탕으로 우리 검사 절차서에 반영할 점검표(체크리스트)로 만들어 주세요. 항목은 10개 이내로.\n\n(원문 요약) 조직은 관리된 조건에서 생산을 수행해야 한다. 관리된 조건에는 제품 특성과 달성해야 할 결과를 정의한 문서화된 정보의 가용성, 적절한 모니터링 및 측정 자원의 가용성과 사용, 공정 산출물이 합격 기준을 충족함을 검증하는 활동, 적절한 인프라와 환경, 적격한 인원의 배치, 특수 공정의 유효성 확인, 인적 오류 방지 조치, 인도 활동과 인도 후 활동이 포함된다. 항공우주 요구사항으로 생산 공정 검증(First Article Inspection), 작업 이전(work transfer) 관리, 키 특성(key characteristics) 관리가 추가된다.",
+      "mapping": {},
+      "entries": [],
+      "unmasked": [],
+      "policy": {
+        "mask_person": false,
+        "mask_company": true
+      }
+    },
+    "external_instruction": "본문의 [[ORG_1]], [[AMT_2]] 같은 표기는 가려진 자리표입니다. 답변(번역·요약 포함)에서도 자리표를 글자 그대로 유지하고, 무엇인지 추측해 채우지 마세요. 자리표에 대한 설명이나 주석은 답변에 넣지 마세요.",
+    "warnings": [],
+    "dropped": [],
+    "timing": {
+      "rules_ms": 0.42,
+      "ner_s": 0.087,
+      "injection_blanked": 0,
+      "chunks": 1,
+      "llm_total_s": 1.019,
+      "llm_load_s": 0.004,
+      "llm_prompt_eval_s": 0.777,
+      "llm_eval_s": 0.188,
+      "llm_prompt_tokens": 757,
+      "llm_eval_tokens": 7,
+      "route_s": 1.209,
+      "total_s": 1.21
+    },
+    "versions": {
+      "service": "woowang-model-service",
+      "version": "0.1.0",
+      "code": "b4ee02f0ee",
+      "dict": "857cd7cff0",
+      "llm_model": "qwen3:30b-a3b-instruct-2507-q4_K_M",
+      "prompt_mode": "C",
+      "route_model": "tev1-cpu",
+      "route_variant": "v1_en_capability",
+      "ner_model": "atonlee/koelectra-ko-pii-ner",
+      "embed_model": "bge-m3-cpu"
+    }
+  }
+}
