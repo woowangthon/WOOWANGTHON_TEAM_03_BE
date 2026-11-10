@@ -24,6 +24,10 @@ class AdminRequestFilterSerializer(serializers.Serializer):
     state = serializers.ChoiceField(choices=Request.State.values, required=False)
     processing_route = serializers.ChoiceField(choices=Request.ProcessingRoute.values, required=False)
     detection_label = serializers.ChoiceField(choices=SensitiveTerm.Label.values, required=False)
+    # 문자열 선택값으로 제한하여 빈 값·1/0·중복 조건을 묵시적으로 해석하지 않는다.
+    has_warnings = serializers.ChoiceField(choices=("true", "false"), required=False)
+    inspection_status = serializers.ChoiceField(choices=Request.InspectionStatus.values, required=False)
+    inspection_anomaly = serializers.ChoiceField(choices=("true", "false"), required=False)
 
     def to_internal_value(self, data):
         if set(data) - set(self.fields):
@@ -56,9 +60,22 @@ class AdminRequestListQuerySerializer(AdminRequestFilterSerializer):
 def get_filtered_admin_requests(filters):
     # 감사 조회는 사용자의 숨김 처리·계정 비활성화·현재 역할에 따라 과거 기록을 제외하지 않는다.
     records = Request.objects.all()
-    for field in ("request_id", "user_id", "state", "processing_route"):
+    for field in ("request_id", "user_id", "state", "processing_route", "inspection_status"):
         if field in filters:
             records = records.filter(**{field: filters[field]})
+    if filters.get("has_warnings") == "true":
+        # 저장된 경고가 있으면 검사 상태와 무관하게 경고 요청이다. 탐지 구간 수로 판단하지 않는다.
+        records = records.exclude(warning_codes=[])
+    elif filters.get("has_warnings") == "false":
+        # 미수집·불완전 검사의 빈 목록을 확정된 '경고 없음'으로 취급하지 않는다.
+        records = records.filter(inspection_status=Request.InspectionStatus.COMPLETE, warning_codes=[])
+    if filters.get("inspection_anomaly") == "true":
+        records = records.filter(inspection_status__in=[
+            Request.InspectionStatus.DEGRADED, Request.InspectionStatus.FAILED,
+        ])
+    elif filters.get("inspection_anomaly") == "false":
+        # pending은 정상 여부 미확정이다. 정상 검사 후 답변 생성 실패는 이 조건에 포함한다.
+        records = records.filter(inspection_status=Request.InspectionStatus.COMPLETE)
     seoul = ZoneInfo("Asia/Seoul")
     if "date_from" in filters:
         records = records.filter(created_at__gte=datetime.combine(filters["date_from"], time.min, seoul))
