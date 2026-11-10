@@ -14,6 +14,7 @@ from accounts.permissions import IsServiceMember, IsServiceUser
 from accounts.roles import get_service_role
 from accounts.views import AuthAPIView, error_body
 
+from .approval_preview import get_approval_preview
 from .intake_service import create_intake, update_instruction
 from .intake_validation import IntakeError, instruction_value, single_values, validate_intake
 from .models import Document, Request
@@ -124,6 +125,17 @@ class RequestIntakeDetailView(IntakeAPIView):
         instruction = instruction_value(values.get("instruction"))
         record, document = update_instruction(request.user, request_id, instruction)
         return Response({"request": intake_response(record, document)})
+
+
+class RequestApprovalPreviewView(IntakeAPIView):
+    """외부 전송 승인 전 확인 정보만 제공한다. 승인과 AI 실행은 수행하지 않는다."""
+
+    permission_classes = [IsServiceUser]
+
+    def get(self, request, request_id):
+        if request.query_params:
+            raise exceptions.ValidationError("이 API는 조회 조건을 받지 않습니다.")
+        return Response({"preview": get_approval_preview(request.user, request_id)})
 
 
 @method_decorator(xframe_options_sameorigin, name="dispatch")
