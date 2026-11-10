@@ -240,7 +240,23 @@ class ApprovalDecisionAPITests(TestCase):
         self.assert_error(response, 400, "INVALID_JSON")
         response = self.client.post(self.url(record), {"decision": "approved"}, **self.csrf_headers())
         self.assert_error(response, 415, "UNSUPPORTED_MEDIA_TYPE")
+        for media_type in ("application/x-www-form-urlencoded", "text/plain"):
+            with self.subTest(media_type=media_type):
+                response = self.client.post(
+                    self.url(record), "decision=approved", content_type=media_type, **self.csrf_headers(),
+                )
+                self.assert_error(response, 415, "UNSUPPORTED_MEDIA_TYPE")
         self.assertEqual(Request.objects.values().get(pk=record.pk), before)
+
+    def test_json_with_charset_parameter_is_accepted(self):
+        record = self.make_request()
+        response = self.client.post(
+            self.url(record), '{"decision":"approved"}',
+            content_type="application/json; charset=utf-8", **self.csrf_headers(),
+        )
+        self.assertEqual(response.status_code, 200)
+        record.refresh_from_db()
+        self.assertEqual(record.approval_status, "approved")
 
     def test_invalid_state_inspection_route_or_delivery_is_denied_without_mutation(self):
         cases = [{"state": value} for value in Request.State.values if value != "awaiting_approval"]

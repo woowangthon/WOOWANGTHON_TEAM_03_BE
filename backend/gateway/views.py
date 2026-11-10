@@ -136,6 +136,10 @@ class RequestApprovalDecisionView(IntakeAPIView):
     def post(self, request, request_id):
         if request.query_params:
             raise exceptions.ValidationError("이 API는 조회 조건을 받지 않습니다.")
+        # CSRF 검사에서 폼 본문이 먼저 소비되어도 입력 검증 전에 형식을 명시적으로 거부한다.
+        media_type = (request.content_type or "").split(";", 1)[0].strip().lower()
+        if media_type != "application/json":
+            raise exceptions.UnsupportedMediaType(request.content_type)
         decision = validate_approval_decision(request.data)
         try:
             result = decide_approval(request.user, request_id, decision)
