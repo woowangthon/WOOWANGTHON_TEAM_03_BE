@@ -83,11 +83,12 @@ def compose(instruction: Optional[str], body: str) -> tuple[str, int]:
 
 class ModelServiceClient:
     def __init__(self, base_url: Optional[str] = None, api_key: Optional[str] = None):
-        base_url = base_url or os.environ.get("MODEL_SERVICE_URL", "")
+        # .env 에 끝 공백·슬래시가 섞여 들어오는 일이 잦아 앞뒤 공백과 끝 슬래시를 지운다
+        base_url = (base_url or os.environ.get("MODEL_SERVICE_URL", "")).strip()
         if not base_url:
             raise ValueError("MODEL_SERVICE_URL 이 비어 있다 (예: http://100.122.114.24:8010)")
-        self.base_url = base_url.rstrip("/")
-        self.api_key = api_key if api_key is not None else os.environ.get("MODEL_API_KEY", "")
+        self.base_url = base_url.rstrip("/ ").strip()
+        self.api_key = (api_key if api_key is not None else os.environ.get("MODEL_API_KEY", "")).strip()
         # HTTP_PROXY 같은 프록시 환경변수가 있어도 Tailscale 주소는 직접 가야 하므로 프록시를 쓰지 않는다
         self._opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 

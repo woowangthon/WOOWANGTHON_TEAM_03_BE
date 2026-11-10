@@ -78,7 +78,7 @@ def processing_available(record, document) -> bool:
 
 def model_client() -> ModelServiceClient:
     """테스트에서 가짜 클라이언트로 바꿔 끼우는 지점."""
-    url = getattr(settings, "MODEL_SERVICE_URL", "")
+    url = (getattr(settings, "MODEL_SERVICE_URL", "") or "").strip()
     if not url:
         raise Unavailable(None, "MODEL_SERVICE_URL 설정이 비어 있습니다.", "/")
     return ModelServiceClient(base_url=url, api_key=getattr(settings, "MODEL_API_KEY", ""))
