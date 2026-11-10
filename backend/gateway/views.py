@@ -14,6 +14,8 @@ from accounts.permissions import IsServiceMember, IsServiceUser
 from accounts.roles import get_service_role
 from accounts.views import AuthAPIView, error_body
 
+from .approval_decision import decide_approval, validate_approval_decision
+from .approval_preview import get_approval_preview
 from .intake_service import create_intake, update_instruction
 from .intake_validation import IntakeError, instruction_value, single_values, validate_intake
 from .models import Document, Request
@@ -124,6 +126,37 @@ class RequestIntakeDetailView(IntakeAPIView):
         instruction = instruction_value(values.get("instruction"))
         record, document = update_instruction(request.user, request_id, instruction)
         return Response({"request": intake_response(record, document)})
+
+
+class RequestApprovalDecisionView(IntakeAPIView):
+    """본인 승인·거절을 기록하며 CSRF 검증과 기존 세션 권한을 적용한다."""
+
+    permission_classes = [IsServiceUser]
+
+    def post(self, request, request_id):
+        if request.query_params:
+            raise exceptions.ValidationError("이 API는 조회 조건을 받지 않습니다.")
+        # CSRF 검사에서 폼 본문이 먼저 소비되어도 입력 검증 전에 형식을 명시적으로 거부한다.
+        media_type = (request.content_type or "").split(";", 1)[0].strip().lower()
+        if media_type != "application/json":
+            raise exceptions.UnsupportedMediaType(request.content_type)
+        decision = validate_approval_decision(request.data)
+        try:
+            result = decide_approval(request.user, request_id, decision)
+        except DatabaseError:
+            raise IntakeError("APPROVAL_SAVE_FAILED", "선택을 저장하지 못했습니다. 다시 확인해 주세요.", 503) from None
+        return Response({"request": result})
+
+
+class RequestApprovalPreviewView(IntakeAPIView):
+    """외부 전송 승인 전 확인 정보만 제공한다. 승인과 AI 실행은 수행하지 않는다."""
+
+    permission_classes = [IsServiceUser]
+
+    def get(self, request, request_id):
+        if request.query_params:
+            raise exceptions.ValidationError("이 API는 조회 조건을 받지 않습니다.")
+        return Response({"preview": get_approval_preview(request.user, request_id)})
 
 
 @method_decorator(xframe_options_sameorigin, name="dispatch")
