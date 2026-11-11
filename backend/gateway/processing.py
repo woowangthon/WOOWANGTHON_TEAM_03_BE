@@ -11,12 +11,17 @@
 - 구간 위치는 input_text 의 코드포인트 기준, 끝 미포함. 본문 시작 위치 앞이면 instruction, 뒤면 pdf 구간이다.
 - PDF 본문은 비공개 저장소(storage_object_key)에서 읽어 pymupdf 로 뽑는다(pdf.py, AI 저장소 src/extract.py 와 같은 규칙).
 - 구간 하나 = SensitiveTerm(value, label) + DetectionSpan. 가려진 구간은 MaskingMapping(placeholder) 을 연결한다.
-  겹침 등 제약 위반 구간은 건너뛰고 경고 코드(SPAN_SAVE_SKIPPED)만 남긴다. 저장 실패를 정상으로 보이게 하지 않는다.
+  겹침 등 제약 위반으로 저장하지 못한 구간이 있으면 경고 코드(SPAN_SAVE_SKIPPED)를 남기고 실패로 끝낸다.
 - 외부 전송 승인 기록은 approval_decision.decide_approval(queued/approved) 이 하고, 실제 전송은 run_external 이 한다.
-  전송문은 저장하지 않고 승인 뒤 DB 의 구간·대응표로 다시 만든다(build_masked_text).
+  전송문은 저장하지 않고 승인 뒤 DB 의 구간·대응표로 다시 만든다(build_masked_text). 그래서 검사 직후, 다시 만든 전송문과
+  대응표가 모델 서비스가 가린 결과(/analyze 의 mask)와 같은지 본다(mask_matches). 다르면 저장되지 않은 구간의 원문이
+  전송문에 남으므로 승인 대기로 보내지 않고 실패로 끝낸다(MASK_MISMATCH).
 - 정책(BE 요구사항 v1.0): 인명 항상 가림, 구간 0건도 외부 전송 전 승인, 불완전 검사(degraded)는 실패·전송 금지,
   답변 절단·복원 불완전은 실패. 실패는 failed + error_stage/error_code 로 남기고 재시도는 새 의뢰다.
 - 배경 실행: GATEWAY_WORKER=thread 면 커밋 뒤 배경 스레드, 아니면 `manage.py process_requests` 가 queued 를 가져간다.
+- 결과 저장: 작업자는 모델 호출을 마친 뒤 행을 다시 잠가, 아직 자기가 가져간 상태일 때만 결과를 쓴다(apply_result).
+  그 사이 끝난 의뢰(장시간 진행 정리 등)의 늦은 결과는 버린다. 작업자의 열(RESULT_FIELDS)만 갱신해 숨김 같은 다른 쪽의
+  변경을 덮어쓰지 않는다. 외부 전송 여부만은 의뢰 상태와 무관한 사실이라 늦게라도 남긴다(record_delivery).
 """
 import logging
 import threading
@@ -53,13 +58,19 @@ WARNING_CODES = (
 CODE_ROUTE_INPUT_TRUNCATED = "ROUTE_INPUT_TRUNCATED"   # 경로 판정 모델이 앞부분만 봄
 CODE_LLM_SPANS_DROPPED = "LLM_SPANS_DROPPED"           # 30B 가 원문에 없는 값을 돌려줘 버림
 CODE_LABEL_UNSUPPORTED = "SPAN_LABEL_UNSUPPORTED"      # DB 라벨 7종에 없는 라벨의 구간을 버림
-CODE_SPAN_SKIPPED = "SPAN_SAVE_SKIPPED"                # 제약 위반(겹침 등)으로 구간을 저장하지 못함
+CODE_SPAN_SKIPPED = "SPAN_SAVE_SKIPPED"                # 제약 위반(겹침 등)으로 구간을 저장하지 못함. 경고이자 실패 사유(error_code)
+CODE_MASK_MISMATCH = "MASK_MISMATCH"                   # 다시 만든 전송문·대응표가 모델 서비스의 가림 결과와 다름(error_code)
 ERROR_CODES = (
     (AuthError, "MODEL_AUTH"), (InputError, "MODEL_INPUT"), (LeakBlocked, "LEAK_BLOCKED"),
     (RateLimited, "EXTERNAL_RATE_LIMITED"), (Unavailable, "MODEL_UNAVAILABLE"), (ServerError, "MODEL_SERVER_ERROR"),
 )
 # 외부 전송 요청이 모델 서비스 안에서 거부되어 외부로 나가지 않은 경우(delivery_status=not_sent 로 확정)
 NOT_SENT_ERRORS = (AuthError, InputError, LeakBlocked)
+# 작업자가 쓰는 열. 결과는 이 열만 갱신해, 처리 중에 다른 쪽이 바꾼 열(숨김·승인 등)을 건드리지 않는다.
+RESULT_FIELDS = (
+    "state", "inspection_status", "inspection_versions", "warning_codes", "processing_route", "error_stage", "error_code",
+    "delivery_status", "answer_text", "finished_at", "updated_at",
+)
 
 
 def compose_input(instruction: str, body: str) -> str:
@@ -107,14 +118,15 @@ def add_codes(record: Request, codes) -> None:
 
 
 def fail(record: Request, stage: str, code: str, *, inspection_failed: bool = False) -> Request:
-    """실패를 failed + error_stage/error_code 로 남긴다. 원문·답변·구간은 지우지 않는다."""
+    """실패를 failed + error_stage/error_code 로 남긴다. 원문·답변·구간은 지우지 않는다.
+    record 는 잠금 아래 방금 읽은 행이어야 한다(locked·apply_result). 오래 들고 있던 사본에는 쓰지 않는다."""
     record.state = S.FAILED
     record.error_stage = stage[:64]
     record.error_code = code[:100]
     if inspection_failed:
         record.inspection_status = Request.InspectionStatus.FAILED
     record.finished_at = timezone.now()
-    record.save()
+    record.save(update_fields=RESULT_FIELDS)
     log.warning("request %s failed at %s: %s", record.pk, stage, code)
     return record
 
@@ -135,32 +147,70 @@ def launch(worker, request_id) -> None:
     transaction.on_commit(start)
 
 
-def run_guarded(worker, request_id) -> None:
-    """스레드 본체. 예상 밖 예외는 failed 로 남기고 스레드의 DB 연결을 닫는다."""
+def run_safely(worker, request_id) -> bool:
+    """worker(request_id) 를 돌린다. 예상 밖 예외는 failed(INTERNAL_ERROR) 로 남기고 삼킨다. 예외 없이 끝났으면 True.
+    의뢰 하나의 오류가 배경 스레드나 정기 실행(dispatch_pending)을 멈추지 않게 한다."""
     try:
         worker(request_id)
-    except Exception:  # noqa: BLE001 - 배경 스레드는 예외를 올릴 곳이 없다
+        return True
+    except Exception:  # noqa: BLE001 - 배경 작업은 예외를 올릴 곳이 없다
         log.exception("request %s: worker %s crashed", request_id, worker.__name__)
-        try:
-            record = Request.objects.filter(pk=request_id, state__in=(S.QUEUED, S.ANALYZING, S.PROCESSING)).first()
+    try:
+        with transaction.atomic():
+            record = locked(request_id, state__in=(S.QUEUED, S.ANALYZING, S.PROCESSING))
             if record is not None:
                 fail(record, "system", "INTERNAL_ERROR")
-        except Exception:  # noqa: BLE001
-            log.exception("request %s: could not record the failure", request_id)
+    except Exception:  # noqa: BLE001
+        log.exception("request %s: could not record the failure", request_id)
+    return False
+
+
+def run_guarded(worker, request_id) -> None:
+    """스레드 본체. 끝나면 스레드의 DB 연결을 닫는다."""
+    try:
+        run_safely(worker, request_id)
     finally:
         connections.close_all()
+
+
+def locked(request_id, **filters):
+    """잠금 아래 최신 행을 읽는다. 조건에 안 맞으면 None. transaction.atomic() 안에서 부른다."""
+    return Request.objects.select_for_update().filter(pk=request_id, **filters).first()
 
 
 def claim(request_id, *, filters: dict, **changes):
     """잠금 아래 조건을 확인하고 상태를 바꾼다. 조건에 안 맞으면(다른 작업자가 먼저 가져갔거나 상태가 바뀜) None."""
     with transaction.atomic():
-        record = Request.objects.select_for_update().filter(pk=request_id, **filters).first()
+        record = locked(request_id, **filters)
         if record is None:
             return None
         for name, value in changes.items():
             setattr(record, name, value)
-        record.save()
+        record.save(update_fields=[*changes, "updated_at"])
     return record
+
+
+def apply_result(request_id, state, change):
+    """작업자가 모델 호출을 마치고 결과를 쓸 때 쓴다. 행을 다시 잠가 최신 값을 읽고, 아직 작업자가 가져간 상태(state)일 때만
+    change(record) 로 결과를 적용한다(change 는 fail·complete 처럼 저장까지 한다).
+    그 사이 다른 쪽이 의뢰를 끝냈으면(장시간 진행 정리 등) 늦은 결과를 버리고 None 을 돌려준다."""
+    with transaction.atomic():
+        record = locked(request_id, state=state)
+        if record is None:
+            log.warning("request %s: late result discarded (no longer %s)", request_id, state)
+            return None
+        change(record)
+    return record
+
+
+def record_delivery(request_id, status) -> None:
+    """외부 전송 요청이 밖으로 나갔는지를 남긴다(전송 시작 때 적어 둔 unknown 을 status 로).
+    의뢰 상태와 무관한 사실이라, 응답을 기다리는 사이 실패로 정리된 의뢰에도 기록한다."""
+    with transaction.atomic():
+        record = locked(request_id, delivery_status=Request.DeliveryStatus.UNKNOWN)
+        if record is not None:
+            record.delivery_status = status
+            record.save(update_fields=["delivery_status", "updated_at"])
 
 
 # ---------- 처리 시작 ----------
@@ -254,18 +304,25 @@ def run_analysis(request_id):
             )
     except ModelServiceError as exc:
         log.warning("request %s: /analyze failed: %s", record.pk, exc)
-        return fail(record, "inspection", error_code_for(exc), inspection_failed=True)
+        code = error_code_for(exc)
+        return apply_result(record.pk, S.ANALYZING, lambda fresh: fail(fresh, "inspection", code, inspection_failed=True))
     body_start = len(record.instruction) + len(BODY_SEP) if document is not None else None
-    return apply_analysis(record, response, body_start)
+    return apply_analysis(record.pk, response, body_start)
 
 
-def apply_analysis(record: Request, response: dict, body_start) -> Request:
-    """/analyze 응답을 저장하고 다음 단계로 넘긴다. body_start 는 input_text 에서 PDF 본문이 시작하는 위치(PDF 없으면 None)."""
+def apply_analysis(request_id, response: dict, body_start):
+    """/analyze 응답을 저장하고 다음 단계로 넘긴다. body_start 는 input_text 에서 PDF 본문이 시작하는 위치(PDF 없으면 None).
+    행을 잠근 트랜잭션에서 구간·검사 결과를 저장하고 승인 대기 전환(prepare_approval)까지 한다.
+    검사 중(analyzing)이 아니면 그 사이 끝난 의뢰이므로 늦은 결과를 버리고 None 을 돌려준다."""
     mode = response.get("mode") or ""
     decision = response.get("decision") or {}
     route = response.get("route") or {}
     Route = Request.ProcessingRoute
     with transaction.atomic():
+        record = locked(request_id, state=S.ANALYZING)
+        if record is None:
+            log.warning("request %s: late /analyze result discarded (no longer %s)", request_id, S.ANALYZING)
+            return None
         complete = mode == "full"
         record.inspection_status = Request.InspectionStatus.COMPLETE if complete else Request.InspectionStatus.DEGRADED
         versions = dict(response.get("versions") or {})
@@ -284,15 +341,23 @@ def apply_analysis(record: Request, response: dict, body_start) -> Request:
             codes.append(CODE_SPAN_SKIPPED)
         add_codes(record, codes)
         action = decision.get("action")
+        # 검사 결과를 그대로 쓸 수 없는 사유(error_code). 저장하지 못한 구간이나 전송문 불일치는 가려지지 않은 원문이 남는다는 뜻이다.
+        problem = None
+        if not complete:
+            problem = "INSPECTION_DEGRADED"
+        elif skipped:
+            problem = CODE_SPAN_SKIPPED
+        elif action == "external" and not mask_matches(record, response.get("mask")):
+            problem = CODE_MASK_MISMATCH
         now = timezone.now()
         if action == "block":
             record.processing_route = Route.BLOCKED
             record.state, record.finished_at = S.BLOCKED, now
-        elif not complete:
-            # 불완전 검사는 결과를 남기되 실패로 끝낸다. 외부 전송은 물론 사내 답변도 만들지 않는다.
+        elif problem:
+            # 결과를 남기되 실패로 끝낸다. 외부 전송은 물론 사내 답변도 만들지 않는다.
             record.processing_route = {"local": Route.LOCAL, "external": Route.EXTERNAL}.get(action)
             record.state, record.finished_at = S.FAILED, now
-            record.error_stage, record.error_code = "inspection", "INSPECTION_DEGRADED"
+            record.error_stage, record.error_code = "inspection", problem
         elif action == "local":
             record.processing_route = Route.LOCAL
             record.state = S.PROCESSING
@@ -303,18 +368,17 @@ def apply_analysis(record: Request, response: dict, body_start) -> Request:
         else:
             record.state, record.finished_at = S.FAILED, now
             record.error_stage, record.error_code = "decision", "DECISION_UNKNOWN"
-        record.save()
+        record.save(update_fields=RESULT_FIELDS)
+        if record.state == S.ANALYZING and record.processing_route == Route.EXTERNAL:
+            try:
+                record, _ = prepare_approval(record.pk)
+            except IntakeError as exc:
+                log.warning("request %s: prepare_approval refused: %s", record.pk, exc.code)
+                fail(record, "approval", exc.code)
     log.info("request %s analyzed: mode=%s action=%s spans=%d skipped=%d unsupported=%d codes=%s",
              record.pk, mode, action, saved, skipped, unsupported, record.warning_codes)
     if record.state == S.PROCESSING:
         return run_local_answer(record)
-    if record.state == S.ANALYZING and record.processing_route == Route.EXTERNAL:
-        try:
-            record, _ = prepare_approval(record.pk)
-        except IntakeError as exc:
-            log.warning("request %s: prepare_approval refused: %s", record.pk, exc.code)
-            record.refresh_from_db()
-            return fail(record, "approval", exc.code)
     return record
 
 
@@ -361,19 +425,20 @@ def save_spans(record: Request, spans: list, body_start) -> tuple:
 # ---------- 답변 ----------
 
 def complete(record: Request, answer, truncated, stage: str) -> Request:
-    """최종 답변 저장. 잘렸거나 비어 있으면 실패로 남긴다(상세 조회는 completed 에서만 답변을 낸다)."""
+    """최종 답변 저장. 잘렸거나 비어 있으면 실패로 남긴다(상세 조회는 completed 에서만 답변을 낸다).
+    record 는 fail 과 같이 잠금 아래 방금 읽은 행이어야 한다."""
     if truncated:
         return fail(record, stage, "ANSWER_TRUNCATED")
     if not isinstance(answer, str) or not answer.strip():
         return fail(record, stage, "ANSWER_EMPTY")
     record.answer_text = answer
     record.state, record.finished_at = S.COMPLETED, timezone.now()
-    record.save()
+    record.save(update_fields=RESULT_FIELDS)
     log.info("request %s completed via %s", record.pk, stage)
     return record
 
 
-def run_local_answer(record: Request) -> Request:
+def run_local_answer(record: Request):
     """사내 처리: 연구실 PC 30B 가 원문으로 답한다. 외부로 나가지 않는다."""
     try:
         with MODEL_LOCK:
@@ -383,9 +448,14 @@ def run_local_answer(record: Request) -> Request:
             )
     except ModelServiceError as exc:
         log.warning("request %s: /answer_local failed: %s", record.pk, exc)
-        return fail(record, "local_answer", error_code_for(exc))
-    add_codes(record, [warning_code(text) for text in response.get("warnings") or []])
-    return complete(record, response.get("answer"), response.get("truncated"), "local_answer")
+        code = error_code_for(exc)
+        return apply_result(record.pk, S.PROCESSING, lambda fresh: fail(fresh, "local_answer", code))
+
+    def save_answer(fresh):
+        add_codes(fresh, [warning_code(text) for text in response.get("warnings") or []])
+        complete(fresh, response.get("answer"), response.get("truncated"), "local_answer")
+
+    return apply_result(record.pk, S.PROCESSING, save_answer)
 
 
 def mapping_dict(record: Request) -> dict:
@@ -403,6 +473,14 @@ def build_masked_text(record: Request) -> str:
     return text
 
 
+def mask_matches(record: Request, mask) -> bool:
+    """DB 의 구간·대응표로 다시 만든 전송문과 대응표가 모델 서비스가 가린 결과(/analyze 응답의 mask)와 같은지 본다.
+    다르면 저장하지 못했거나 버린 구간이 있다. 그 값은 전송문에 원문으로 남고 대응표에 없어 모델 서비스의 유출 검사도 잡지 못한다."""
+    if not isinstance(mask, dict):
+        return False
+    return build_masked_text(record) == mask.get("masked") and mapping_dict(record) == mask.get("mapping")
+
+
 def run_external(request_id):
     """승인된 의뢰(queued/approved)만 processing 으로 가져가 가림 본문을 외부로 보내고 복원된 답변을 저장한다."""
     now = timezone.now()
@@ -416,6 +494,10 @@ def run_external(request_id):
     )
     if record is None:
         return None
+    if CODE_SPAN_SKIPPED in (record.warning_codes or []):
+        # 저장하지 못한 구간의 원문이 전송문에 남는다. 검사 단계에서 실패로 끝났어야 하는 의뢰라 보내지 않는다.
+        record_delivery(record.pk, Request.DeliveryStatus.NOT_SENT)
+        return apply_result(record.pk, S.PROCESSING, lambda fresh: fail(fresh, "external_send", CODE_SPAN_SKIPPED))
     masked = build_masked_text(record)
     mapping = mapping_dict(record)
     try:
@@ -423,39 +505,50 @@ def run_external(request_id):
     except ModelServiceError as exc:
         log.warning("request %s: /answer_external failed: %s", record.pk, exc)
         if isinstance(exc, NOT_SENT_ERRORS):
-            record.delivery_status = Request.DeliveryStatus.NOT_SENT
-        return fail(record, "external_send", error_code_for(exc))
-    record.delivery_status = Request.DeliveryStatus.CONFIRMED_SENT
-    if response.get("refusal") or response.get("stop_reason") == "refusal":
-        return fail(record, "external_send", "EXTERNAL_REFUSAL")
-    if response.get("unresolved"):
-        return fail(record, "restore", "RESTORE_INCOMPLETE")
-    return complete(record, response.get("restored"), response.get("truncated"), "external_send")
+            record_delivery(record.pk, Request.DeliveryStatus.NOT_SENT)
+        code = error_code_for(exc)
+        return apply_result(record.pk, S.PROCESSING, lambda fresh: fail(fresh, "external_send", code))
+    record_delivery(record.pk, Request.DeliveryStatus.CONFIRMED_SENT)
+
+    def save_answer(fresh):
+        if response.get("refusal") or response.get("stop_reason") == "refusal":
+            fail(fresh, "external_send", "EXTERNAL_REFUSAL")
+        elif response.get("unresolved"):
+            fail(fresh, "restore", "RESTORE_INCOMPLETE")
+        else:
+            complete(fresh, response.get("restored"), response.get("truncated"), "external_send")
+
+    return apply_result(record.pk, S.PROCESSING, save_answer)
 
 
 # ---------- 정기 작업 ----------
 
 def dispatch_pending(limit: int = 20) -> int:
-    """queued 의뢰를 가져가 처리한다(승인 전은 검사, 승인 뒤는 외부 전송). 서버 재시작으로 스레드가 사라진 경우의 복구 경로."""
+    """queued 의뢰를 가져가 처리한다(승인 전은 검사, 승인 뒤는 외부 전송). 서버 재시작으로 스레드가 사라진 경우의 복구 경로.
+    의뢰 하나가 예상 밖 오류로 끝나도 실패로 남기고 다음 의뢰로 넘어간다. 반환은 오류 없이 돌린 건수."""
     ran = 0
     rows = Request.objects.filter(state=S.QUEUED).order_by("updated_at").values_list("pk", "approval_status")[:limit]
     for pk, approval_status in list(rows):
         if approval_status is None:
-            run_analysis(pk)
+            worker = run_analysis
         elif approval_status == Request.ApprovalStatus.APPROVED:
-            run_external(pk)
+            worker = run_external
         else:
             continue
-        ran += 1
+        ran += run_safely(worker, pk)
     return ran
 
 
 def fail_stuck(minutes=None) -> int:
-    """검사 중·처리 중에 너무 오래 머문 의뢰를 실패로 돌린다. 모델 호출 시간 초과(최대 4분)보다 길게 잡는다."""
+    """검사 중·처리 중에 너무 오래 머문 의뢰를 실패로 돌린다. 모델 호출 시간 초과(최대 4분)보다 길게 잡는다.
+    잠금 아래 다시 확인하므로, 대상을 고른 뒤 작업자가 끝낸 의뢰는 건드리지 않는다."""
     minutes = minutes if minutes is not None else getattr(settings, "GATEWAY_STUCK_MINUTES", 15)
-    cutoff = timezone.now() - timedelta(minutes=minutes)
+    stuck = {"state__in": (S.ANALYZING, S.PROCESSING), "updated_at__lt": timezone.now() - timedelta(minutes=minutes)}
     count = 0
-    for record in Request.objects.filter(state__in=(S.ANALYZING, S.PROCESSING), updated_at__lt=cutoff):
-        fail(record, "system", "STUCK")
-        count += 1
+    for pk in list(Request.objects.filter(**stuck).values_list("pk", flat=True)):
+        with transaction.atomic():
+            record = locked(pk, **stuck)
+            if record is not None:
+                fail(record, "system", "STUCK")
+                count += 1
     return count

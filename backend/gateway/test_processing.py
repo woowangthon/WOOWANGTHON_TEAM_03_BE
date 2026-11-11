@@ -4,10 +4,13 @@ testdata/ 의 응답 예시는 AI 저장소 docs/samples 의 가상 문서(D2~D4
 
 import copy
 import json
+import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from threading import Event
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -16,7 +19,8 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.core.files.base import ContentFile
 from django.core.management import call_command
-from django.test import TestCase, override_settings
+from django.db import IntegrityError, close_old_connections, connection, connections
+from django.test import TestCase, TransactionTestCase, override_settings
 from django.utils import timezone
 from rest_framework.exceptions import PermissionDenied
 
@@ -28,6 +32,7 @@ from .approval_preview import get_approval_preview
 from .intake_validation import IntakeError
 from .model_client import LeakBlocked, Unavailable
 from .models import DetectionSpan, Document, MaskingMapping, Request, SensitiveTerm
+from .request_visibility import hide_request
 from .storage import document_storage
 
 SAMPLES = Path(__file__).resolve().parent / "testdata"
@@ -63,15 +68,21 @@ def blank_pdf():
 
 
 class FakeClient:
-    """경로별 응답(또는 예외)을 미리 넣어 두고 호출 내용을 기록한다."""
+    """경로별 응답(또는 예외)을 미리 넣어 두고 호출 내용을 기록한다. 응답이 목록이면 호출마다 차례로 하나씩 쓴다.
+    during 에 경로별 함수를 주면 응답을 돌려주기 직전에 실행한다(모델 호출 도중에 다른 쪽이 의뢰를 바꾸는 상황)."""
 
-    def __init__(self, **responses):
+    def __init__(self, during=None, **responses):
         self.responses = responses
+        self.during = during or {}
         self.calls = []
 
     def _answer(self, name, payload):
         self.calls.append((name, payload))
         result = self.responses.get(name)
+        if isinstance(result, list):
+            result = result.pop(0)
+        if name in self.during:
+            self.during[name]()
         if isinstance(result, Exception):
             raise result
         if result is None:
@@ -145,6 +156,23 @@ class ProcessingTestCase(TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
         return client
+
+    def awaiting_sample(self):
+        """검사를 마치고 승인 대기 중인 예시 의뢰(D3)."""
+        record = self.queued_sample("analyze_D3")
+        self.use_client(analyze=sample("analyze_D3")["response"])
+        processing.run_analysis(record.pk)
+        record.refresh_from_db()
+        self.assertEqual(record.state, Request.State.AWAITING_APPROVAL)
+        return record
+
+    def approved_sample(self):
+        """본인이 승인해 외부 전송을 기다리는 예시 의뢰(D3)."""
+        record = self.awaiting_sample()
+        result = decide_approval(self.member, record.pk, Request.ApprovalStatus.APPROVED)
+        self.assertEqual((result["state"], result["approval"]["status"]), ("queued", "approved"))
+        record.refresh_from_db()
+        return record
 
     def assert_intake_error(self, code, fn, *args, status=None):
         with self.assertRaises(IntakeError) as caught:
@@ -394,27 +422,103 @@ class AnalysisTests(ProcessingTestCase):
         record.refresh_from_db()
         self.assertEqual((record.state, record.error_code), (Request.State.FAILED, "DECISION_UNKNOWN"))
 
-    def test_unsupported_and_overlapping_spans_are_skipped_with_warning_codes(self):
+    def test_unmasked_span_with_unsupported_label_is_dropped_with_warning_code(self):
         record = self.queued_sample("analyze_D4")
-        text = record.input_text
-        first = text.index("AS9100D")
         response = sample("analyze_D4")["response"]
         response["spans"] = [
-            {"start": first, "end": first + 7, "text": "AS9100D", "label": "doc_no", "masked": True, "placeholder": "[[ID_1]]"},
-            {"start": first + 2, "end": first + 9, "text": text[first + 2:first + 9], "label": "project", "masked": True,
-             "placeholder": "[[PROJECT_1]]"},  # 앞 구간과 겹친다
-            {"start": 0, "end": 2, "text": text[:2], "label": "other", "masked": False, "placeholder": None},
+            {"start": 0, "end": 2, "text": record.input_text[:2], "label": "other", "masked": False, "placeholder": None},
         ]
         response["route"]["truncated"] = True
         self.use_client(analyze=response)
         processing.run_analysis(record.pk)
         record.refresh_from_db()
-        self.assertEqual(record.state, Request.State.AWAITING_APPROVAL)
-        self.assertEqual(DetectionSpan.objects.filter(request=record).count(), 1)
-        self.assertEqual(MaskingMapping.objects.filter(request=record).count(), 1)
-        for code in ("SPAN_LABEL_UNSUPPORTED", "SPAN_SAVE_SKIPPED", "ROUTE_INPUT_TRUNCATED"):
+        self.assertEqual(record.state, Request.State.AWAITING_APPROVAL)  # 가려지지 않는 구간이라 전송문은 그대로다
+        self.assertEqual(DetectionSpan.objects.filter(request=record).count(), 0)
+        for code in ("SPAN_LABEL_UNSUPPORTED", "ROUTE_INPUT_TRUNCATED"):
             self.assertIn(code, record.warning_codes)
         self.assertEqual(SensitiveTerm.objects.filter(label="other").count(), 0)
+
+    def test_span_that_cannot_be_saved_fails_instead_of_continuing(self):
+        """저장하지 못한 구간(여기서는 겹침)의 원문은 다시 만든 전송문에 그대로 남는다. 불완전 검사처럼 실패로 끝낸다."""
+        routes = {"external": Request.ProcessingRoute.EXTERNAL, "local": Request.ProcessingRoute.LOCAL}
+        for action, route in routes.items():
+            with self.subTest(action=action):
+                record = self.queued_sample("analyze_D4")
+                text = record.input_text
+                first = text.index("AS9100D")
+                response = sample("analyze_D4")["response"]
+                response["decision"] = {"action": action, "needs_approval": action == "external", "reasons": [], "warnings": []}
+                response["spans"] = [
+                    {"start": first, "end": first + 7, "text": "AS9100D", "label": "doc_no", "masked": True,
+                     "placeholder": "[[ID_1]]"},
+                    {"start": first + 2, "end": first + 9, "text": text[first + 2:first + 9], "label": "project", "masked": True,
+                     "placeholder": "[[PROJECT_1]]"},  # 앞 구간과 겹친다
+                ]
+                client = self.use_client(analyze=response)
+                processing.run_analysis(record.pk)
+                record.refresh_from_db()
+                self.assertEqual(record.state, Request.State.FAILED)
+                self.assertEqual((record.error_stage, record.error_code), ("inspection", "SPAN_SAVE_SKIPPED"))
+                self.assertIn("SPAN_SAVE_SKIPPED", record.warning_codes)
+                self.assertEqual(record.processing_route, route)
+                self.assertIsNone(record.approval_status)
+                self.assertIsNotNone(record.finished_at)
+                self.assertEqual(DetectionSpan.objects.filter(request=record).count(), 1)  # 저장된 구간은 남긴다
+                self.assertEqual([name for name, _ in client.calls], ["analyze"])  # 사내 답변도 만들지 않는다
+
+    def test_request_with_a_failed_span_save_cannot_be_approved_or_sent(self):
+        """가려져야 할 구간 하나가 저장에 실패하면, 그 값이 전송문에 원문으로 남고 대응표에 없어 유출 검사도 잡지 못한다."""
+        response = sample("analyze_D3")["response"]
+        target = next(span for span in response["spans"] if span["masked"])
+        record = self.queued_sample("analyze_D3")
+        client = self.use_client(analyze=response, answer_external=sample("answer_external_D3")["response"])
+        create_span = DetectionSpan.objects.create
+
+        def failing_create(**fields):
+            if fields["start_offset"] == target["start"]:
+                raise IntegrityError("가상 저장 실패")
+            return create_span(**fields)
+
+        with patch.object(DetectionSpan.objects, "create", side_effect=failing_create):
+            processing.run_analysis(record.pk)
+        record.refresh_from_db()
+        self.assertEqual(record.state, Request.State.FAILED)
+        self.assertEqual((record.error_stage, record.error_code), ("inspection", "SPAN_SAVE_SKIPPED"))
+        self.assertIsNone(record.approval_status)
+        self.assertEqual(DetectionSpan.objects.filter(request=record).count(), len(response["spans"]) - 1)
+        self.assertIn(target["text"], processing.build_masked_text(record))  # 이대로 보냈다면 원문이 나갔을 전송문
+        self.assert_intake_error("APPROVAL_NOT_AVAILABLE", decide_approval, self.member, record.pk, "approved")
+        self.assertIsNone(processing.run_external(record.pk))
+        self.assertEqual([name for name, _ in client.calls], ["analyze"])  # 외부 전송 호출이 없다
+
+    def test_result_that_does_not_rebuild_to_the_model_mask_fails_before_approval(self):
+        """DB 로 다시 만든 전송문·대응표가 모델 서비스가 가린 결과와 다르면, 가려지지 않은 원문이 전송문에 남은 것이다."""
+        def masked_span_with_unknown_label(text, response):
+            start = text.index("AS9100D")
+            response["spans"] = [
+                {"start": start, "end": start + 7, "text": "AS9100D", "label": "other", "masked": True, "placeholder": "[[X_1]]"},
+            ]
+            response["mask"]["masked"] = text[:start] + "[[X_1]]" + text[start + 7:]
+            response["mask"]["mapping"] = {"[[X_1]]": "AS9100D"}
+
+        cases = {
+            "가려진 구간의 라벨이 DB 에 없어 버려진다": masked_span_with_unknown_label,
+            "대응표가 다르다": lambda text, response: response["mask"]["mapping"].update({"[[ID_9]]": "가상 값"}),
+            "응답에 mask 가 없다": lambda text, response: response.pop("mask"),
+        }
+        for name, change in cases.items():
+            with self.subTest(case=name):
+                record = self.queued_sample("analyze_D4")
+                response = sample("analyze_D4")["response"]
+                change(record.input_text, response)
+                self.use_client(analyze=response)
+                processing.run_analysis(record.pk)
+                record.refresh_from_db()
+                self.assertEqual(record.state, Request.State.FAILED)
+                self.assertEqual((record.error_stage, record.error_code), ("inspection", "MASK_MISMATCH"))
+                self.assertEqual(record.processing_route, Request.ProcessingRoute.EXTERNAL)
+                self.assertIsNone(record.approval_status)
+                self.assertIsNotNone(record.finished_at)
 
     def test_only_queued_requests_without_decision_are_analyzed(self):
         preparing = self.make_request()
@@ -436,21 +540,6 @@ class AnalysisTests(ProcessingTestCase):
 
 
 class ExternalSendTests(ProcessingTestCase):
-    def awaiting_sample(self):
-        record = self.queued_sample("analyze_D3")
-        self.use_client(analyze=sample("analyze_D3")["response"])
-        processing.run_analysis(record.pk)
-        record.refresh_from_db()
-        self.assertEqual(record.state, Request.State.AWAITING_APPROVAL)
-        return record
-
-    def approved_sample(self):
-        record = self.awaiting_sample()
-        result = decide_approval(self.member, record.pk, Request.ApprovalStatus.APPROVED)
-        self.assertEqual((result["state"], result["approval"]["status"]), ("queued", "approved"))
-        record.refresh_from_db()
-        return record
-
     def test_approved_request_is_sent_masked_and_completed(self):
         record = self.approved_sample()
         external = sample("answer_external_D3")["response"]
@@ -514,6 +603,108 @@ class ExternalSendTests(ProcessingTestCase):
                 self.assertEqual(Request.objects.values().get(pk=record.pk), before)
         self.assertEqual(client.calls, [])
 
+    def test_approved_request_with_an_unsaved_span_is_not_sent(self):
+        """수정 전 코드가 승인 대기로 보낸 의뢰가 남아 있어도, 저장하지 못한 구간이 있으면 보내지 않는다."""
+        record = self.approved_sample()
+        Request.objects.filter(pk=record.pk).update(warning_codes=["SPAN_SAVE_SKIPPED"])
+        client = self.use_client(answer_external=sample("answer_external_D3")["response"])
+        processing.run_external(record.pk)
+        record.refresh_from_db()
+        self.assertEqual(record.state, Request.State.FAILED)
+        self.assertEqual((record.error_stage, record.error_code), ("external_send", "SPAN_SAVE_SKIPPED"))
+        self.assertEqual(record.delivery_status, Request.DeliveryStatus.NOT_SENT)
+        self.assertIsNone(record.answer_text)
+        self.assertEqual(client.calls, [])
+
+
+class ConcurrentChangeTests(ProcessingTestCase):
+    """모델 호출 도중에 다른 쪽이 의뢰를 바꾼 경우. 가짜 클라이언트가 응답을 돌려주기 직전에 그 변경을 실행한다(FakeClient.during).
+    SQLite 에는 행 잠금이 없어, 여기서는 순서를 정해 둔 끼어들기로 결과 저장의 판단만 검증한다."""
+
+    STUCK = (Request.State.FAILED, "system", "STUCK")
+
+    def local_response(self):
+        response = sample("analyze_D3")["response"]
+        response["decision"] = {"action": "local", "needs_approval": False, "reasons": [], "warnings": []}
+        return response
+
+    def hide(self, record):
+        return lambda: hide_request(self.member, record.pk)
+
+    def stuck_cleanup(self, record):
+        """장시간 진행 정리가 이 의뢰를 실패(STUCK)로 돌리는 끼어들기."""
+        def run():
+            Request.objects.filter(pk=record.pk).update(updated_at=timezone.now() - timedelta(minutes=16))
+            self.assertEqual(processing.fail_stuck(), 1)
+        return run
+
+    def outcome(self, record):
+        record.refresh_from_db()
+        return record.state, record.error_stage, record.error_code
+
+    def test_hiding_during_a_model_call_is_not_undone_by_the_result(self):
+        State = Request.State
+        analyzed, local = sample("analyze_D3")["response"], sample("answer_local_D2")["response"]
+        external = sample("answer_external_D3")["response"]
+        cases = [
+            ("analyze", self.queued_sample, dict(analyze=analyzed), State.AWAITING_APPROVAL),
+            ("analyze", self.queued_sample, dict(analyze=Unavailable(None, "가상 연결 실패", "/analyze")), State.FAILED),
+            ("answer_local", self.queued_sample, dict(analyze=self.local_response(), answer_local=local), State.COMPLETED),
+            ("answer_external", self.approved_sample, dict(answer_external=external), State.COMPLETED),
+            ("answer_external", self.approved_sample,
+             dict(answer_external=LeakBlocked(409, "가상 유출 검사", "/answer_external")), State.FAILED),
+        ]
+        for call, make, responses, state in cases:
+            with self.subTest(call=call, state=state):
+                record = make()
+                self.use_client(during={call: self.hide(record)}, **responses)
+                worker = processing.run_external if call == "answer_external" else processing.run_analysis
+                worker(record.pk)
+                record.refresh_from_db()
+                self.assertEqual(record.state, state)
+                self.assertIsNotNone(record.hidden_at)
+
+    def test_late_analysis_result_does_not_revive_a_request_failed_meanwhile(self):
+        """장시간 진행 정리가 실패로 돌린 뒤에 도착한 검사 결과(응답이든 오류든)는 버린다. 실패 기록이 그대로 남는다."""
+        results = {"응답": sample("analyze_D3")["response"], "오류": Unavailable(None, "가상 시간 초과", "/analyze")}
+        for name, result in results.items():
+            with self.subTest(result=name):
+                record = self.queued_sample("analyze_D3")
+                self.use_client(during={"analyze": self.stuck_cleanup(record)}, analyze=result)
+                self.assertIsNone(processing.run_analysis(record.pk))
+                self.assertEqual(self.outcome(record), self.STUCK)
+                self.assertIsNotNone(record.finished_at)
+                self.assertEqual(record.inspection_status, Request.InspectionStatus.PENDING)
+                self.assertIsNone(record.approval_status)
+                self.assertEqual(DetectionSpan.objects.filter(request=record).count(), 0)
+
+    def test_late_local_answer_does_not_complete_a_request_failed_meanwhile(self):
+        record = self.queued_sample("analyze_D3")
+        self.use_client(
+            during={"answer_local": self.stuck_cleanup(record)}, analyze=self.local_response(),
+            answer_local=sample("answer_local_D2")["response"],
+        )
+        self.assertIsNone(processing.run_analysis(record.pk))
+        self.assertEqual(self.outcome(record), self.STUCK)
+        self.assertIsNone(record.answer_text)
+
+    def test_late_external_result_keeps_the_failure_and_records_whether_it_was_sent(self):
+        """전송 응답을 기다리는 사이 실패로 정리된 의뢰는 실패로 두되, 외부로 나갔는지는 사실대로 남긴다."""
+        Delivery = Request.DeliveryStatus
+        cases = [
+            ("응답 도착", sample("answer_external_D3")["response"], Delivery.CONFIRMED_SENT),
+            ("유출 검사로 거부", LeakBlocked(409, "가상 유출 검사", "/answer_external"), Delivery.NOT_SENT),
+            ("응답 유실", Unavailable(None, "가상 시간 초과", "/answer_external"), Delivery.UNKNOWN),
+        ]
+        for name, result, delivery in cases:
+            with self.subTest(result=name):
+                record = self.approved_sample()
+                self.use_client(during={"answer_external": self.stuck_cleanup(record)}, answer_external=result)
+                self.assertIsNone(processing.run_external(record.pk))
+                self.assertEqual(self.outcome(record), self.STUCK)
+                self.assertEqual(record.delivery_status, delivery)
+                self.assertIsNone(record.answer_text)
+
 
 class MaintenanceTests(ProcessingTestCase):
     def test_dispatch_runs_queued_analysis_and_approved_sends(self):
@@ -538,6 +729,23 @@ class MaintenanceTests(ProcessingTestCase):
         self.assertEqual((stuck.state, stuck.error_code), (Request.State.FAILED, "STUCK"))
         self.assertEqual(recent.state, Request.State.PROCESSING)
 
+    def test_stuck_cleanup_skips_a_request_that_finished_before_it_was_locked(self):
+        """정리 대상을 고른 뒤 잠그기 전에 작업자가 끝낸 의뢰는 건드리지 않는다(답변을 지우지 않는다)."""
+        record = self.make_request(state=Request.State.PROCESSING, input_text="가상", processing_route="local")
+        Request.objects.filter(pk=record.pk).update(updated_at=timezone.now() - timedelta(minutes=16))
+        read_locked = processing.locked
+
+        def finish_first(request_id, **filters):
+            Request.objects.filter(pk=request_id).update(
+                state=Request.State.COMPLETED, answer_text="가상 답변", updated_at=timezone.now(),
+            )
+            return read_locked(request_id, **filters)
+
+        with patch.object(processing, "locked", side_effect=finish_first):
+            self.assertEqual(processing.fail_stuck(), 0)
+        record.refresh_from_db()
+        self.assertEqual((record.state, record.answer_text, record.error_code), (Request.State.COMPLETED, "가상 답변", None))
+
     def test_process_requests_command_reports_counts(self):
         record = self.queued_sample("analyze_D4")
         expired = self.make_request(
@@ -551,6 +759,42 @@ class MaintenanceTests(ProcessingTestCase):
         self.assertIn("처리 1건, 기한 만료 1건", out.getvalue())
         self.assertEqual(Request.objects.get(pk=record.pk).state, Request.State.AWAITING_APPROVAL)
         self.assertEqual(Request.objects.get(pk=expired.pk).state, Request.State.EXPIRED)
+
+    def crashing_then_healthy(self):
+        """예상 밖 형식의 응답을 받을 의뢰와 정상 의뢰. 앞의 것이 먼저 처리된다."""
+        crashing, healthy = self.queued_sample("analyze_D3"), self.queued_sample("analyze_D3")
+        Request.objects.filter(pk=crashing.pk).update(updated_at=timezone.now() - timedelta(minutes=1))
+        malformed = sample("analyze_D3")["response"]
+        del malformed["spans"][0]["start"]
+        self.use_client(analyze=[malformed, sample("analyze_D3")["response"]])
+        return crashing, healthy
+
+    def assert_crash_recorded_and_next_processed(self, crashing, healthy):
+        crashing.refresh_from_db()
+        healthy.refresh_from_db()
+        self.assertEqual(
+            (crashing.state, crashing.error_stage, crashing.error_code), (Request.State.FAILED, "system", "INTERNAL_ERROR"),
+        )
+        self.assertEqual(healthy.state, Request.State.AWAITING_APPROVAL)
+
+    def test_command_records_a_crashing_request_and_processes_the_next(self):
+        crashing, healthy = self.crashing_then_healthy()
+        out = StringIO()
+        with self.assertLogs("gateway.processing", level="ERROR"):
+            call_command("process_requests", stdout=out)
+        self.assertIn("처리 1건", out.getvalue())
+        self.assert_crash_recorded_and_next_processed(crashing, healthy)
+
+    def test_looping_command_survives_a_crashing_request(self):
+        crashing, healthy = self.crashing_then_healthy()
+
+        class StopLoop(Exception):
+            """반복을 끝내려고 주기 끝의 대기에서 올린다."""
+
+        with patch("gateway.management.commands.process_requests.time.sleep", side_effect=StopLoop):
+            with self.assertLogs("gateway.processing", level="ERROR"), self.assertRaises(StopLoop):
+                call_command("process_requests", loop=True, stdout=StringIO())
+        self.assert_crash_recorded_and_next_processed(crashing, healthy)
 
     @override_settings(GATEWAY_WORKER="thread")
     def test_launch_starts_worker_thread_after_commit(self):
@@ -580,3 +824,105 @@ class MaintenanceTests(ProcessingTestCase):
             processing.run_guarded(broken, record.pk)
         record.refresh_from_db()
         self.assertEqual((record.state, record.error_stage, record.error_code), (Request.State.FAILED, "system", "INTERNAL_ERROR"))
+
+
+@override_settings(PASSWORD_HASHERS=["django.contrib.auth.hashers.MD5PasswordHasher"])
+class ResultWriteLockTests(TransactionTestCase):
+    """PostgreSQL 의 행 잠금으로 작업자의 결과 저장과 숨김·장시간 진행 정리가 겹칠 때를 검증한다. 실제 AI 호출은 없다.
+    한쪽이 행을 잠근 채 멈춰 있게 하고, 다른 쪽이 그 잠금을 기다리기 시작한 것을 확인한 뒤 풀어 준다."""
+
+    def setUp(self):
+        if connection.vendor != "postgresql":
+            self.skipTest("PostgreSQL의 행 잠금으로 검증합니다.")
+        self.user = get_user_model().objects.create_user(
+            username="USR70901", full_name="결과 저장 잠금 검증용 가상 사용자", password="SecurePass1!",
+        )
+        self.user.groups.add(Group.objects.create(name=USER_GROUP_NAME))
+        self.record = Request.objects.create(
+            user=self.user, client_request_key=uuid4(), instruction="가상 의뢰", input_text="가상 의뢰",
+            state=Request.State.PROCESSING, inspection_status="complete", processing_route="local",
+        )
+        self.holding, self.release = Event(), Event()
+
+    def in_thread(self, action):
+        close_old_connections()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SET lock_timeout = '10s'")
+            return action()
+        finally:
+            connections.close_all()
+
+    def pause(self):
+        """행을 잠근 채 멈춘다. overlap 이 상대의 잠금 대기를 확인하고 풀어 준다."""
+        self.holding.set()
+        if not self.release.wait(timeout=20):
+            raise AssertionError("잠금을 풀라는 신호가 오지 않았습니다.")
+
+    def wait_for_lock_waiter(self):
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'"
+                )
+                if cursor.fetchone()[0]:
+                    return
+            time.sleep(0.05)
+        self.fail("행 잠금을 기다리는 연결이 생기지 않았습니다.")
+
+    def overlap(self, holder, waiter):
+        """holder 가 행을 잠그고 멈춘 동안 waiter 를 시작하고, waiter 가 잠금을 기다리는 것을 확인한 뒤 holder 를 끝낸다."""
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            try:
+                first = pool.submit(self.in_thread, holder)
+                self.assertTrue(self.holding.wait(timeout=10), "먼저 시작한 쪽이 행을 잠그지 못했습니다.")
+                second = pool.submit(self.in_thread, waiter)
+                self.wait_for_lock_waiter()
+            finally:
+                self.release.set()
+            return first.result(timeout=20), second.result(timeout=20)
+
+    def write_answer(self, paused=False):
+        """작업자의 결과 저장. 썼으면 True, 늦은 결과로 버려졌으면 False."""
+        def change(fresh):
+            if paused:
+                self.pause()
+            processing.complete(fresh, "가상 최종 답변", False, "local_answer")
+        return processing.apply_result(self.record.pk, Request.State.PROCESSING, change) is not None
+
+    def make_stuck(self):
+        Request.objects.filter(pk=self.record.pk).update(updated_at=timezone.now() - timedelta(minutes=16))
+
+    def outcome(self):
+        self.record.refresh_from_db()
+        return self.record.state, self.record.error_code, self.record.answer_text
+
+    def test_hide_waits_for_the_result_write_and_both_are_kept(self):
+        def hide():
+            return hide_request(get_user_model().objects.get(pk=self.user.pk), self.record.pk)
+
+        written, hidden_at = self.overlap(lambda: self.write_answer(paused=True), hide)
+        self.assertTrue(written)
+        self.assertEqual(self.outcome(), (Request.State.COMPLETED, None, "가상 최종 답변"))
+        self.assertIsNotNone(hidden_at)
+        self.assertEqual(self.record.hidden_at, hidden_at)
+
+    def test_stuck_cleanup_waits_for_the_result_write_and_leaves_it(self):
+        self.make_stuck()
+        written, failed = self.overlap(lambda: self.write_answer(paused=True), processing.fail_stuck)
+        self.assertEqual((written, failed), (True, 0))
+        self.assertEqual(self.outcome(), (Request.State.COMPLETED, None, "가상 최종 답변"))
+
+    def test_late_result_write_waits_for_stuck_cleanup_and_is_discarded(self):
+        self.make_stuck()
+        fail = processing.fail
+
+        def paused_fail(*args, **kwargs):
+            self.pause()
+            return fail(*args, **kwargs)
+
+        with patch.object(processing, "fail", side_effect=paused_fail):
+            failed, written = self.overlap(processing.fail_stuck, self.write_answer)
+        self.assertEqual((failed, written), (1, False))
+        self.assertEqual(self.outcome(), (Request.State.FAILED, "STUCK", None))

@@ -30,8 +30,12 @@ preparing ──start──▶ queued ──검사──▶ analyzing ─┬─ 
 - 외부 경로는 구간 0건이어도 `prepare_approval`(TK-63)로 승인 대기(30분)에 들어간다.
 - 승인 API 는 기존대로 `queued`/`approved` 만 기록한다. 그 직후 AI 작업자가 같은 의뢰를 `processing` 으로 가져가 전송한다.
 - 불완전 검사(`degraded`)는 즉시 탐지 결과를 남기고 `failed`/`INSPECTION_DEGRADED` 로 끝낸다. 사내 답변도 만들지 않는다.
+- 구간을 하나라도 저장하지 못하면 `failed`/`SPAN_SAVE_SKIPPED`, 저장한 구간으로 다시 만든 전송문·대응표가 모델 서비스의 `mask` 와 다르면
+  `failed`/`MASK_MISMATCH` 로 끝낸다. 둘 다 가려지지 않은 원문이 전송문에 남는 경우라 승인 대기로 보내지 않는다(불완전 검사와 같은 취급).
 - 답변이 생성 상한에서 잘리거나 비어 있으면 `failed`(`ANSWER_TRUNCATED`/`ANSWER_EMPTY`). 복원되지 않은 자리표가 남으면 `failed`/`RESTORE_INCOMPLETE`.
 - 실패는 새 의뢰로 다시 접수한다. 같은 의뢰를 다시 시작할 수 없다.
+- 작업자는 모델 호출 뒤 행을 다시 잠가, 아직 자기가 가져간 상태일 때만 결과를 쓴다. 그 사이 `failed`(`STUCK` 등)로 끝난 의뢰에 늦게 온
+  결과는 버리고 실패 기록을 유지한다. 숨김(`hidden_at`)처럼 처리 중에 다른 쪽이 바꾼 값은 덮어쓰지 않는다.
 
 ## 2. 처리 시작 API
 
@@ -62,15 +66,19 @@ preparing ──start──▶ queued ──검사──▶ analyzing ─┬─ 
 - 가린 구간은 `masking_mappings(placeholder)` 에 연결된다. 자리표 형식은 모델 서비스가 정한다(`[[ORG_1]]`, `[[PERSON_1]]`, `[[ID_1]]`, `[[AMT_1]]`, `[[CONTACT_1]]`, `[[PROJECT_1]]`).
   같은 값은 한 의뢰 안에서 같은 자리표를 쓴다. 인명은 항상 가린다.
 - 모델 라벨 7종(company/project/doc_no/price/person/contact/biz_no)만 저장한다. 그 밖의 라벨 구간은 버리고 `SPAN_LABEL_UNSUPPORTED`,
-  겹침 등 제약 위반으로 못 넣은 구간은 `SPAN_SAVE_SKIPPED` 를 `warning_codes` 에 남긴다.
+  겹침 등 제약 위반으로 못 넣은 구간은 `SPAN_SAVE_SKIPPED` 를 `warning_codes` 에 남긴다. 못 넣은 구간이 있으면 의뢰는 실패로 끝난다.
+  버려지는 라벨은 현재 모델 서비스가 가리지 않는 `other` 뿐이다. 모델 서비스가 가린 구간이 버려지면 아래 일치 확인에서 실패한다.
+- 외부 경로는 저장 직후 `build_masked_text` 결과와 대응표가 `/analyze` 응답의 `mask.masked`·`mask.mapping` 과 같은지 확인한다.
+  다르거나 응답에 `mask` 가 없으면 `MASK_MISMATCH` 로 실패한다.
 - `warning_codes`: `INJECTION_DETECTED`, `LLM_FAILED`, `LLM_OUTPUT_TRUNCATED`, `ROUTE_FAILED`, `ROUTE_INPUT_TRUNCATED`(경로 판정이 앞 6,000자만 봄),
   `LLM_SPANS_DROPPED`, `SPAN_LABEL_UNSUPPORTED`, `SPAN_SAVE_SKIPPED`, `WARNING_OTHER`. 모델 서비스의 한국어 문장은 저장하지 않는다.
 - `inspection_versions`: 모델 서비스 `versions` + `mode`(`full`/`degraded`).
-- `error_stage`/`error_code`: `extraction`/PDF_* · `inspection`/MODEL_UNAVAILABLE·MODEL_AUTH·MODEL_INPUT·MODEL_SERVER_ERROR·INSPECTION_DEGRADED ·
-  `decision`/DECISION_UNKNOWN · `local_answer`/ANSWER_TRUNCATED·ANSWER_EMPTY·MODEL_* · `external_send`/LEAK_BLOCKED·EXTERNAL_RATE_LIMITED·EXTERNAL_REFUSAL·ANSWER_TRUNCATED·ANSWER_EMPTY·MODEL_* ·
+- `error_stage`/`error_code`: `extraction`/PDF_* · `inspection`/MODEL_UNAVAILABLE·MODEL_AUTH·MODEL_INPUT·MODEL_SERVER_ERROR·INSPECTION_DEGRADED·SPAN_SAVE_SKIPPED·MASK_MISMATCH ·
+  `decision`/DECISION_UNKNOWN · `local_answer`/ANSWER_TRUNCATED·ANSWER_EMPTY·MODEL_* · `external_send`/LEAK_BLOCKED·EXTERNAL_RATE_LIMITED·EXTERNAL_REFUSAL·ANSWER_TRUNCATED·ANSWER_EMPTY·SPAN_SAVE_SKIPPED·MODEL_* ·
   `restore`/RESTORE_INCOMPLETE · `approval`/APPROVAL_NOT_AVAILABLE·PREVIEW_NOT_AVAILABLE · `system`/INTERNAL_ERROR·STUCK.
 - `delivery_status`: 외부 경로 결정 시 `not_sent`, 전송 시작 시 `unknown`, 모델 서비스가 응답하면 `confirmed_sent`.
   모델 서비스 안에서 거부되어 밖으로 안 나간 경우(401·409 유출 검사·422)는 `not_sent` 로 되돌린다.
+  응답을 기다리는 사이 의뢰가 `failed` 로 정리됐어도 이 값은 사실대로 갱신한다(상태와 실패 사유는 그대로 둔다).
 - 전송문 전문은 저장하지 않는다. 승인 뒤 `input_text` 와 저장된 구간·대응표로 다시 만들어 보낸다(`build_masked_text`).
 - `answer_text` 는 복원이 끝난 최종 답변만, `completed` 와 함께 저장한다.
 
@@ -88,6 +96,7 @@ preparing ──start──▶ queued ──검사──▶ analyzing ─┬─ 
   재시작 시 진행 중 스레드가 사라진다. 사라진 의뢰는 `queued` 로 남아 `process_requests` 가 가져간다(`analyzing`/`processing` 은 `STUCK`).
 - 30B·외부 LLM 호출 시간: 검사 10~100초(문서 길이), 사내 답변 수십 초, 외부 전송 5초 안팎. 모델 서비스는 30B 호출을 직렬 처리한다.
 - `python manage.py process_requests [--loop --interval 5]` 를 `expire_approvals` 와 함께 정기 실행하면 만료·복구·정리가 한 번에 된다.
+  의뢰 하나가 예상 밖 오류로 끝나면 `failed`/`INTERNAL_ERROR` 로 남기고 다음 의뢰를 처리한다(배경 스레드와 같은 보호).
 - 테스트는 실제 AI 를 부르지 않는다(`GATEWAY_WORKER=command` 와 가짜 클라이언트). `gateway/testdata/*.json` 은 가상 문서(D2~D4)로 받은 실제 응답 형식이다.
 
 ## 5. TK-62 문서 9절 질문에 대한 답
@@ -97,9 +106,9 @@ preparing ──start──▶ queued ──검사──▶ analyzing ─┬─ 
 3. 반환은 본문 문자열·쪽수. 글자 없음(`PDF_NO_TEXT`)·암호화·쪽수 초과·손상은 코드로 구분한다. 부분 실패·시간 초과 구분은 없다(pymupdf 는 쪽 단위로 뽑고 실패하면 예외).
 4. 추출은 처리 시작 API 안에서 동기(20쪽 기준 1초 미만). 검사·답변은 배경(위 4절). 상태 갱신·DB 저장은 모두 `processing.py`.
 5. 결합 규칙은 `의뢰문 + "\n\n" + 본문`, 상한 60,000 코드포인트(Python `len`). 시작 시 검증하고 `input_text` 로 고정한다.
-6. 분류는 라벨 7종, 기준 문자열은 `sensitive_terms.value`, 위치는 3절. 모델 서비스가 겹침을 정리해 주고 남는 겹침은 건너뛴다.
+6. 분류는 라벨 7종, 기준 문자열은 `sensitive_terms.value`, 위치는 3절. 모델 서비스가 겹침을 정리해 준다. 그래도 남는 겹침은 저장 실패로 보고 의뢰를 실패 처리한다.
 7. 자리표·대응표 형식은 3절. 저장 시점은 검사 직후(승인 전). 승인 뒤 전송과 복원은 모델 서비스 `/answer_external` 이 한 번에 한다.
-8. 불완전 검사·생성 실패·응답 유실·복원 실패는 3절의 `error_code` 와 `delivery_status`. 중복 실행은 행 잠금 + 상태 조건(`claim`)으로 막는다.
+8. 불완전 검사·생성 실패·응답 유실·복원 실패는 3절의 `error_code` 와 `delivery_status`. 중복 실행은 행 잠금 + 상태 조건(`claim`)으로 막고, 결과 저장도 같은 방식으로 한다(`apply_result`).
 
 ## 6. 남은 사항
 
