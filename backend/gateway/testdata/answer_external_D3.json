@@ -1,0 +1,48 @@
+{
+  "note": "외부 전송(4.2): 가림 본문만 Anthropic 에 보내고 answer(자리표 그대로)·restored(복원)·unresolved 를 받는다",
+  "http_status": 200,
+  "request": {
+    "masked": "아래 부적합 보고서를 고객사 품질 감사 대응용 영문으로 번역해 주세요. 표 형식은 유지해 주세요.\n\n부적합 보고서 (NCR)\n문서번호: [[ID_1]] | 발행일: 2026-10-22\n고객사: (주)[[ORG_1]] | 사업명: [[PROJECT_1]]\n품명: 브래킷 어셈블리 | 품번: [[ID_2]] | 도면번호: [[ID_3]]\n로트번호: [[ID_4]] | 검사 수량: 200 EA | 부적합 수량: 12 EA\n부적합 내용: 가공면 표면 조도 Ra 3.2 초과(측정값 Ra 4.1~4.6), 도면 요구 Ra 3.2 이하\n원인 분석: 황삭 공구 마모 한계 초과 사용(교체 주기 400개 → 실제 520개 가공)\n시정 조치: 해당 로트 전수 재검사, 공구 교체 주기 350개로 단축, 작업표준서 [[ID_5]] 개정\n비용: 재작업 비용 [[AMT_1]] (단가 [[AMT_2]] 기준 불량 12 EA 재가공)\n작성: 품질팀 김지영 과장 ([[CONTACT_1]], [[CONTACT_2]])\n고객 담당: [[ORG_1]] 품질보증팀 정민호 책임",
+    "mapping": {
+      "[[ID_1]]": "NCR-2026-0147",
+      "[[ORG_1]]": "한빛에어로",
+      "[[PROJECT_1]]": "KX-3 구동장치 2차 양산",
+      "[[ID_2]]": "BRK-1120-03A",
+      "[[ID_3]]": "DWG-2026-0417 Rev.B",
+      "[[ID_4]]": "L261015-03",
+      "[[ID_5]]": "WS-07-12",
+      "[[AMT_1]]": "2,400,000원",
+      "[[AMT_2]]": "850,000원",
+      "[[CONTACT_1]]": "010-4821-7736",
+      "[[CONTACT_2]]": "jy.kim@daesung-precision.co.kr"
+    },
+    "request_id": "sample-D3-external"
+  },
+  "response": {
+    "request_id": "sample-D3-external",
+    "answer": "**Nonconformance Report (NCR)**\n\n| Item | Details |\n|---|---|\n| Document No. | [[ID_1]] |\n| Issue Date | 2026-10-22 |\n| Customer | [[ORG_1]] Co., Ltd. |\n| Project | [[PROJECT_1]] |\n| Part Name | Bracket Assembly |\n| Part No. | [[ID_2]] |\n| Drawing No. | [[ID_3]] |\n| Lot No. | [[ID_4]] |\n| Inspected Quantity | 200 EA |\n| Nonconforming Quantity | 12 EA |\n| Description of Nonconformance | Machined surface roughness exceeded Ra 3.2 (measured values: Ra 4.1–4.6); the drawing requires Ra 3.2 or less. |\n| Root Cause Analysis | The roughing tool was used beyond its wear limit (replacement interval: 400 pcs; actual quantity machined: 520 pcs). |\n| Corrective Actions | 1) 100% re-inspection of the affected lot. 2) Tool replacement interval shortened to 350 pcs. 3) Work Standard [[ID_5]] revised. |\n| Cost | Rework cost: [[AMT_1]] (based on a unit price of [[AMT_2]] for reworking 12 nonconforming EA) |\n| Prepared by | Ji-young Kim, Manager, Quality Team ([[CONTACT_1]], [[CONTACT_2]]) |\n| Customer Contact | Min-ho Jung, Senior Manager, Quality Assurance Team, [[ORG_1]] |",
+    "restored": "**Nonconformance Report (NCR)**\n\n| Item | Details |\n|---|---|\n| Document No. | NCR-2026-0147 |\n| Issue Date | 2026-10-22 |\n| Customer | 한빛에어로 Co., Ltd. |\n| Project | KX-3 구동장치 2차 양산 |\n| Part Name | Bracket Assembly |\n| Part No. | BRK-1120-03A |\n| Drawing No. | DWG-2026-0417 Rev.B |\n| Lot No. | L261015-03 |\n| Inspected Quantity | 200 EA |\n| Nonconforming Quantity | 12 EA |\n| Description of Nonconformance | Machined surface roughness exceeded Ra 3.2 (measured values: Ra 4.1–4.6); the drawing requires Ra 3.2 or less. |\n| Root Cause Analysis | The roughing tool was used beyond its wear limit (replacement interval: 400 pcs; actual quantity machined: 520 pcs). |\n| Corrective Actions | 1) 100% re-inspection of the affected lot. 2) Tool replacement interval shortened to 350 pcs. 3) Work Standard WS-07-12 revised. |\n| Cost | Rework cost: 2,400,000원 (based on a unit price of 850,000원 for reworking 12 nonconforming EA) |\n| Prepared by | Ji-young Kim, Manager, Quality Team (010-4821-7736, jy.kim@daesung-precision.co.kr) |\n| Customer Contact | Min-ho Jung, Senior Manager, Quality Assurance Team, 한빛에어로 |",
+    "unresolved": [],
+    "placeholders": {
+      "sent": 11,
+      "kept": 11
+    },
+    "stop_reason": "end_turn",
+    "truncated": false,
+    "refusal": null,
+    "model": "claude-sonnet-5-5",
+    "served_by": "claude-sonnet-5-5",
+    "fallback_ran": false,
+    "effort": "medium",
+    "usage": {
+      "input_tokens": 633,
+      "output_tokens": 553,
+      "cache_read": 0,
+      "cache_write": 0
+    },
+    "cost_usd": 0.0068,
+    "seconds": 4.25,
+    "anthropic_request_id": "req_011CgfdmzQiW9hwUU1jK37jq",
+    "notes": []
+  }
+}

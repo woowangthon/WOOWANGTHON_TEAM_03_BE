@@ -112,7 +112,7 @@ class RequestIntakeAPITests(TestCase):
         self.assertEqual(record.instruction, text)
         self.assertEqual(data["state"], "preparing")
         self.assertIsNone(data["document"])
-        self.assertFalse(data["processing_available"])
+        self.assertTrue(data["processing_available"])  # 의뢰문이 있는 준비 중 의뢰는 처리 시작 가능
         self.assertFalse(response.json()["replayed"])
         self.assertEqual(record.input_text, "")
         self.assertIsNone(record.processing_route)

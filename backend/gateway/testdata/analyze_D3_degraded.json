@@ -1,0 +1,545 @@
+{
+  "note": "30B 와 tev1 호출이 모두 실패했을 때: mode=degraded, spans 는 즉시 경로만, route=null, 결정은 사내 폴백, warnings 에 사유",
+  "http_status": 200,
+  "request": {
+    "text": "아래 부적합 보고서를 고객사 품질 감사 대응용 영문으로 번역해 주세요. 표 형식은 유지해 주세요.\n\n부적합 보고서 (NCR)\n문서번호: NCR-2026-0147 | 발행일: 2026-10-22\n고객사: (주)한빛에어로 | 사업명: KX-3 구동장치 2차 양산\n품명: 브래킷 어셈블리 | 품번: BRK-1120-03A | 도면번호: DWG-2026-0417 Rev.B\n로트번호: L261015-03 | 검사 수량: 200 EA | 부적합 수량: 12 EA\n부적합 내용: 가공면 표면 조도 Ra 3.2 초과(측정값 Ra 4.1~4.6), 도면 요구 Ra 3.2 이하\n원인 분석: 황삭 공구 마모 한계 초과 사용(교체 주기 400개 → 실제 520개 가공)\n시정 조치: 해당 로트 전수 재검사, 공구 교체 주기 350개로 단축, 작업표준서 WS-07-12 개정\n비용: 재작업 비용 2,400,000원 (단가 850,000원 기준 불량 12 EA 재가공)\n작성: 품질팀 김지영 과장 (010-4821-7736, jy.kim@daesung-precision.co.kr)\n고객 담당: 한빛에어로 품질보증팀 정민호 책임",
+    "request_id": "sample-D3-degraded"
+  },
+  "response": {
+    "request_id": "sample-D3-degraded",
+    "doc_name": null,
+    "text_chars": 563,
+    "body_offset": 0,
+    "mode": "degraded",
+    "spans": [
+      {
+        "start": 76,
+        "end": 89,
+        "text": "NCR-2026-0147",
+        "label": "doc_no",
+        "sources": [
+          "rule:doc_code",
+          "rule:doc_cue"
+        ],
+        "tier": 1,
+        "masked": true,
+        "placeholder": "[[ID_1]]"
+      },
+      {
+        "start": 116,
+        "end": 121,
+        "text": "한빛에어로",
+        "label": "company",
+        "sources": [
+          "dict:companies.txt"
+        ],
+        "tier": 1,
+        "masked": true,
+        "placeholder": "[[ORG_1]]"
+      },
+      {
+        "start": 129,
+        "end": 133,
+        "text": "KX-3",
+        "label": "project",
+        "sources": [
+          "dict:projects.txt"
+        ],
+        "tier": 1,
+        "masked": true,
+        "placeholder": "[[PROJECT_1]]"
+      },
+      {
+        "start": 164,
+        "end": 176,
+        "text": "BRK-1120-03A",
+        "label": "doc_no",
+        "sources": [
+          "rule:doc_code",
+          "rule:doc_cue"
+        ],
+        "tier": 1,
+        "masked": true,
+        "placeholder": "[[ID_2]]"
+      },
+      {
+        "start": 185,
+        "end": 198,
+        "text": "DWG-2026-0417",
+        "label": "doc_no",
+        "sources": [
+          "rule:doc_code",
+          "rule:doc_cue"
+        ],
+        "tier": 1,
+        "masked": true,
+        "placeholder": "[[ID_3]]"
+      },
+      {
+        "start": 211,
+        "end": 221,
+        "text": "L261015-03",
+        "label": "doc_no",
+        "sources": [
+          "rule:lot_code",
+          "rule:doc_cue"
+        ],
+        "tier": 1,
+        "masked": true,
+        "placeholder": "[[ID_4]]"
+      },
+      {
+        "start": 411,
+        "end": 419,
+        "text": "WS-07-12",
+        "label": "doc_no",
+        "sources": [
+          "rule:doc_code"
+        ],
+        "tier": 1,
+        "masked": true,
+        "placeholder": "[[ID_5]]"
+      },
+      {
+        "start": 434,
+        "end": 444,
+        "text": "2,400,000원",
+        "label": "price",
+        "sources": [
+          "rule:price_krw",
+          "rule:price_cue"
+        ],
+        "tier": 1,
+        "masked": true,
+        "placeholder": "[[AMT_1]]"
+      },
+      {
+        "start": 449,
+        "end": 457,
+        "text": "850,000원",
+        "label": "price",
+        "sources": [
+          "rule:price_krw",
+          "rule:price_cue"
+        ],
+        "tier": 1,
+        "masked": true,
+        "placeholder": "[[AMT_2]]"
+      },
+      {
+        "start": 483,
+        "end": 486,
+        "text": "김지영",
+        "label": "person",
+        "sources": [
+          "rule:name_title",
+          "ner:koelectra-ko-pii-ner"
+        ],
+        "tier": 2,
+        "masked": false,
+        "placeholder": null
+      },
+      {
+        "start": 491,
+        "end": 504,
+        "text": "010-4821-7736",
+        "label": "contact",
+        "sources": [
+          "rule:mobile"
+        ],
+        "tier": 1,
+        "masked": true,
+        "placeholder": "[[CONTACT_1]]"
+      },
+      {
+        "start": 506,
+        "end": 536,
+        "text": "jy.kim@daesung-precision.co.kr",
+        "label": "contact",
+        "sources": [
+          "rule:email"
+        ],
+        "tier": 1,
+        "masked": true,
+        "placeholder": "[[CONTACT_2]]"
+      },
+      {
+        "start": 545,
+        "end": 550,
+        "text": "한빛에어로",
+        "label": "company",
+        "sources": [
+          "dict:companies.txt"
+        ],
+        "tier": 1,
+        "masked": true,
+        "placeholder": "[[ORG_1]]"
+      },
+      {
+        "start": 557,
+        "end": 560,
+        "text": "정민호",
+        "label": "person",
+        "sources": [
+          "rule:name_title",
+          "ner:koelectra-ko-pii-ner"
+        ],
+        "tier": 2,
+        "masked": false,
+        "placeholder": null
+      }
+    ],
+    "rule_spans": [
+      {
+        "start": 76,
+        "end": 89,
+        "text": "NCR-2026-0147",
+        "label": "doc_no",
+        "sources": [
+          "rule:doc_code",
+          "rule:doc_cue"
+        ],
+        "tier": 1
+      },
+      {
+        "start": 116,
+        "end": 121,
+        "text": "한빛에어로",
+        "label": "company",
+        "sources": [
+          "dict:companies.txt"
+        ],
+        "tier": 1
+      },
+      {
+        "start": 129,
+        "end": 133,
+        "text": "KX-3",
+        "label": "project",
+        "sources": [
+          "dict:projects.txt"
+        ],
+        "tier": 1
+      },
+      {
+        "start": 164,
+        "end": 176,
+        "text": "BRK-1120-03A",
+        "label": "doc_no",
+        "sources": [
+          "rule:doc_code",
+          "rule:doc_cue"
+        ],
+        "tier": 1
+      },
+      {
+        "start": 185,
+        "end": 198,
+        "text": "DWG-2026-0417",
+        "label": "doc_no",
+        "sources": [
+          "rule:doc_code",
+          "rule:doc_cue"
+        ],
+        "tier": 1
+      },
+      {
+        "start": 211,
+        "end": 221,
+        "text": "L261015-03",
+        "label": "doc_no",
+        "sources": [
+          "rule:lot_code",
+          "rule:doc_cue"
+        ],
+        "tier": 1
+      },
+      {
+        "start": 411,
+        "end": 419,
+        "text": "WS-07-12",
+        "label": "doc_no",
+        "sources": [
+          "rule:doc_code"
+        ],
+        "tier": 1
+      },
+      {
+        "start": 434,
+        "end": 444,
+        "text": "2,400,000원",
+        "label": "price",
+        "sources": [
+          "rule:price_krw"
+        ],
+        "tier": 1
+      },
+      {
+        "start": 434,
+        "end": 443,
+        "text": "2,400,000",
+        "label": "price",
+        "sources": [
+          "rule:price_cue"
+        ],
+        "tier": 1
+      },
+      {
+        "start": 449,
+        "end": 457,
+        "text": "850,000원",
+        "label": "price",
+        "sources": [
+          "rule:price_krw"
+        ],
+        "tier": 1
+      },
+      {
+        "start": 449,
+        "end": 456,
+        "text": "850,000",
+        "label": "price",
+        "sources": [
+          "rule:price_cue"
+        ],
+        "tier": 1
+      },
+      {
+        "start": 483,
+        "end": 486,
+        "text": "김지영",
+        "label": "person",
+        "sources": [
+          "rule:name_title"
+        ],
+        "tier": 2
+      },
+      {
+        "start": 491,
+        "end": 504,
+        "text": "010-4821-7736",
+        "label": "contact",
+        "sources": [
+          "rule:mobile"
+        ],
+        "tier": 1
+      },
+      {
+        "start": 506,
+        "end": 536,
+        "text": "jy.kim@daesung-precision.co.kr",
+        "label": "contact",
+        "sources": [
+          "rule:email"
+        ],
+        "tier": 1
+      },
+      {
+        "start": 545,
+        "end": 550,
+        "text": "한빛에어로",
+        "label": "company",
+        "sources": [
+          "dict:companies.txt"
+        ],
+        "tier": 1
+      },
+      {
+        "start": 557,
+        "end": 560,
+        "text": "정민호",
+        "label": "person",
+        "sources": [
+          "rule:name_title"
+        ],
+        "tier": 2
+      },
+      {
+        "start": 483,
+        "end": 486,
+        "text": "김지영",
+        "label": "person",
+        "sources": [
+          "ner:koelectra-ko-pii-ner"
+        ],
+        "tier": 2
+      },
+      {
+        "start": 557,
+        "end": 560,
+        "text": "정민호",
+        "label": "person",
+        "sources": [
+          "ner:koelectra-ko-pii-ner"
+        ],
+        "tier": 2
+      }
+    ],
+    "llm_spans": [],
+    "sensitive": true,
+    "route": null,
+    "route_error": "URLError: <urlopen error [WinError 10061] 대상 컴퓨터에서 연결을 거부했으므로 연결하지 못했습니다>",
+    "decision": {
+      "action": "local",
+      "needs_approval": false,
+      "reasons": [
+        "라우팅 불가(폴백): 사내 처리"
+      ],
+      "warnings": []
+    },
+    "mask": {
+      "masked": "아래 부적합 보고서를 고객사 품질 감사 대응용 영문으로 번역해 주세요. 표 형식은 유지해 주세요.\n\n부적합 보고서 (NCR)\n문서번호: [[ID_1]] | 발행일: 2026-10-22\n고객사: (주)[[ORG_1]] | 사업명: [[PROJECT_1]] 구동장치 2차 양산\n품명: 브래킷 어셈블리 | 품번: [[ID_2]] | 도면번호: [[ID_3]] Rev.B\n로트번호: [[ID_4]] | 검사 수량: 200 EA | 부적합 수량: 12 EA\n부적합 내용: 가공면 표면 조도 Ra 3.2 초과(측정값 Ra 4.1~4.6), 도면 요구 Ra 3.2 이하\n원인 분석: 황삭 공구 마모 한계 초과 사용(교체 주기 400개 → 실제 520개 가공)\n시정 조치: 해당 로트 전수 재검사, 공구 교체 주기 350개로 단축, 작업표준서 [[ID_5]] 개정\n비용: 재작업 비용 [[AMT_1]] (단가 [[AMT_2]] 기준 불량 12 EA 재가공)\n작성: 품질팀 김지영 과장 ([[CONTACT_1]], [[CONTACT_2]])\n고객 담당: [[ORG_1]] 품질보증팀 정민호 책임",
+      "mapping": {
+        "[[ID_1]]": "NCR-2026-0147",
+        "[[ORG_1]]": "한빛에어로",
+        "[[PROJECT_1]]": "KX-3",
+        "[[ID_2]]": "BRK-1120-03A",
+        "[[ID_3]]": "DWG-2026-0417",
+        "[[ID_4]]": "L261015-03",
+        "[[ID_5]]": "WS-07-12",
+        "[[AMT_1]]": "2,400,000원",
+        "[[AMT_2]]": "850,000원",
+        "[[CONTACT_1]]": "010-4821-7736",
+        "[[CONTACT_2]]": "jy.kim@daesung-precision.co.kr"
+      },
+      "entries": [
+        {
+          "start": 76,
+          "end": 89,
+          "text": "NCR-2026-0147",
+          "label": "doc_no",
+          "placeholder": "[[ID_1]]"
+        },
+        {
+          "start": 116,
+          "end": 121,
+          "text": "한빛에어로",
+          "label": "company",
+          "placeholder": "[[ORG_1]]"
+        },
+        {
+          "start": 129,
+          "end": 133,
+          "text": "KX-3",
+          "label": "project",
+          "placeholder": "[[PROJECT_1]]"
+        },
+        {
+          "start": 164,
+          "end": 176,
+          "text": "BRK-1120-03A",
+          "label": "doc_no",
+          "placeholder": "[[ID_2]]"
+        },
+        {
+          "start": 185,
+          "end": 198,
+          "text": "DWG-2026-0417",
+          "label": "doc_no",
+          "placeholder": "[[ID_3]]"
+        },
+        {
+          "start": 211,
+          "end": 221,
+          "text": "L261015-03",
+          "label": "doc_no",
+          "placeholder": "[[ID_4]]"
+        },
+        {
+          "start": 411,
+          "end": 419,
+          "text": "WS-07-12",
+          "label": "doc_no",
+          "placeholder": "[[ID_5]]"
+        },
+        {
+          "start": 434,
+          "end": 444,
+          "text": "2,400,000원",
+          "label": "price",
+          "placeholder": "[[AMT_1]]"
+        },
+        {
+          "start": 449,
+          "end": 457,
+          "text": "850,000원",
+          "label": "price",
+          "placeholder": "[[AMT_2]]"
+        },
+        {
+          "start": 491,
+          "end": 504,
+          "text": "010-4821-7736",
+          "label": "contact",
+          "placeholder": "[[CONTACT_1]]"
+        },
+        {
+          "start": 506,
+          "end": 536,
+          "text": "jy.kim@daesung-precision.co.kr",
+          "label": "contact",
+          "placeholder": "[[CONTACT_2]]"
+        },
+        {
+          "start": 545,
+          "end": 550,
+          "text": "한빛에어로",
+          "label": "company",
+          "placeholder": "[[ORG_1]]"
+        }
+      ],
+      "unmasked": [
+        {
+          "start": 483,
+          "end": 486,
+          "text": "김지영",
+          "label": "person",
+          "reason": "등급 2 정책으로 가리지 않음"
+        },
+        {
+          "start": 557,
+          "end": 560,
+          "text": "정민호",
+          "label": "person",
+          "reason": "등급 2 정책으로 가리지 않음"
+        }
+      ],
+      "policy": {
+        "mask_person": false,
+        "mask_company": true
+      }
+    },
+    "external_instruction": "본문의 [[ORG_1]], [[AMT_2]] 같은 표기는 가려진 자리표입니다. 답변(번역·요약 포함)에서도 자리표를 글자 그대로 유지하고, 무엇인지 추측해 채우지 마세요. 자리표에 대한 설명이나 주석은 답변에 넣지 마세요.",
+    "warnings": [
+      "정밀 검사(30B) 호출 실패 → 규칙 결과만 적용: <urlopen error [WinError 10061] 대상 컴퓨터에서 연결을 거부했으므로 연결하지 못했습니다>",
+      "라우팅(tev1) 호출 실패 → 사내 처리 폴백: URLError: <urlopen error [WinError 10061] 대상 컴퓨터에서 연결을 거부했으므로 연결하지 못했습니다>"
+    ],
+    "dropped": [],
+    "timing": {
+      "rules_ms": 0.57,
+      "ner_s": 0.037,
+      "injection_blanked": 0,
+      "chunks": 1,
+      "llm_total_s": 0,
+      "llm_load_s": 0,
+      "llm_prompt_eval_s": 0,
+      "llm_eval_s": 0,
+      "llm_prompt_tokens": 0,
+      "llm_eval_tokens": 0,
+      "route_s": null,
+      "total_s": 2.077
+    },
+    "versions": {
+      "service": "woowang-model-service",
+      "version": "0.1.0",
+      "code": "b4ee02f0ee",
+      "dict": "857cd7cff0",
+      "llm_model": "qwen3:30b-a3b-instruct-2507-q4_K_M",
+      "prompt_mode": "C",
+      "route_model": "tev1-cpu",
+      "route_variant": "v1_en_capability",
+      "ner_model": "atonlee/koelectra-ko-pii-ner",
+      "embed_model": "bge-m3-cpu"
+    }
+  }
+}

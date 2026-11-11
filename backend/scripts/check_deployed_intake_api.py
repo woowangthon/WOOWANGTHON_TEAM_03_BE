@@ -225,8 +225,8 @@ class Scenario:
         print(f"INFO: 생성한 의뢰 ID: {request_id}")
         require(record.get("client_request_key") == key and record.get("instruction") == instruction
                 and data.get("replayed") is False, "접수 응답의 입력 정보가 예상과 다릅니다.")
-        require(record.get("state") == "preparing" and record.get("processing_available") is False,
-                "접수 API가 준비 단계와 다르게 동작합니다. AI 연결 여부를 확인하세요.")
+        require(record.get("state") == "preparing" and record.get("processing_available") is (instruction != ""),
+                "접수 API가 준비 단계와 다르게 동작합니다. 처리 시작 가능 여부는 의뢰문 유무를 따라야 합니다.")
         if pdf is None:
             require(record.get("document") is None, "의뢰문 단독 접수에 문서가 반환되었습니다.")
         else:
