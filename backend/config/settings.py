@@ -108,7 +108,9 @@ MODEL_SERVICE_URL = os.environ.get("MODEL_SERVICE_URL", "")
 MODEL_API_KEY = os.environ.get("MODEL_API_KEY", "")
 # AI 처리 실행 방식: thread(요청 처리 프로세스의 배경 스레드, 단일 프로세스 전제) 또는 command(manage.py process_requests --loop 가 처리)
 GATEWAY_WORKER = os.environ.get("GATEWAY_WORKER", "thread")
-GATEWAY_LOCAL_MAX_TOKENS = 1024   # 사내 답변 생성 상한. 넘어서 잘리면 실패로 남긴다.
+# 사내 답변 생성 상한. 넘어서 잘리면 실패로 남긴다. 사내 모델은 입력과 출력을 합쳐 4,096토큰까지라 그 절반으로 둔다
+# (1024 일 때 2쪽 문서 요약이 1,173토큰에서 끝나야 하는데 잘려 실패했다. 2026-11-11 TEST-01)
+GATEWAY_LOCAL_MAX_TOKENS = 2048
 GATEWAY_STUCK_MINUTES = 15        # 검사 중·처리 중에 이보다 오래 머물면 process_requests 가 실패 처리
 
 

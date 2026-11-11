@@ -89,7 +89,7 @@ preparing ──start──▶ queued ──검사──▶ analyzing ─┬─ 
 | `MODEL_SERVICE_URL` | 모델 서비스 주소(예: `http://100.x.x.x:8010`, Tailscale). 비어 있으면 검사가 `MODEL_UNAVAILABLE` 로 실패 |
 | `MODEL_API_KEY` | 모델 서비스 `X-API-Key`. AI 담당자가 서버용 키를 따로 발급해 `.env` 에 넣는다 |
 | `GATEWAY_WORKER` | `thread`(기본): 요청 처리 프로세스의 배경 스레드. 다른 값: `manage.py process_requests --loop` 만 처리 |
-| `GATEWAY_LOCAL_MAX_TOKENS` | 사내 답변 생성 상한(1024) |
+| `GATEWAY_LOCAL_MAX_TOKENS` | 사내 답변 생성 상한(2048). 사내 모델의 문맥 4,096토큰을 입력과 나눠 쓴다 |
 | `GATEWAY_STUCK_MINUTES` | 검사 중·처리 중이 이보다 오래가면 `process_requests` 가 `STUCK` 실패 처리(15) |
 
 - `thread` 는 Django 프로세스 하나를 전제한다(현재 `runserver` 컨테이너). 프로세스가 여럿이면 30B 직렬화 잠금이 프로세스별이 되고,
