@@ -7,13 +7,13 @@ from django.views.decorators.http import require_safe
 @require_safe
 def index(request):
     return HttpResponse(
-        '<!doctype html><html lang="ja"><meta charset="utf-8">'
+        '<!doctype html><html lang="ko"><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
-        '<title>Django 起動確認</title>'
+        '<title>Django 실행 상태 확인</title>'
         '<body style="font-family:system-ui;max-width:640px;margin:64px auto;padding:0 24px">'
-        '<h1>Djangoが起動しています</h1>'
-        '<p>ローカルの開発環境が動作しています。</p>'
-        '<p><a href="/health/">PostgreSQLとの接続を確認する</a></p>'
+        '<h1>Django가 실행 중입니다</h1>'
+        '<p>로컬 개발 환경이 실행 중입니다.</p>'
+        '<p><a href="/health/">PostgreSQL 연결 상태 확인</a></p>'
         '</body></html>'
     )
 

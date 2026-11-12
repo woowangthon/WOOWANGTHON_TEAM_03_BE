@@ -221,7 +221,7 @@ class NameAPITests(TestCase):
     def test_same_name_and_unicode_name_are_accepted_without_trimming(self):
         for actor, url in ((self.member, self.own_url), (self.admin, self.admin_url)):
             self.login_as(actor)
-            for name in ("변경 전 가상 이름", "  山田 하나  "):
+            for name in ("변경 전 가상 이름", "  야마다 하나  "):
                 response = self.patch_json(url, {"full_name": name})
                 self.assertEqual(response.status_code, 200)
                 self.assertEqual(response.json()["user"]["full_name"], name)
