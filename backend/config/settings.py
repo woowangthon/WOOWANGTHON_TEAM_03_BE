@@ -82,7 +82,7 @@ REST_FRAMEWORK = {
     ],
 }
 
-LANGUAGE_CODE = "ja"
+LANGUAGE_CODE = "ko"
 TIME_ZONE = "Asia/Seoul"
 USE_I18N = True
 USE_TZ = True

@@ -120,6 +120,22 @@ class PasswordAPITests(TestCase):
         self.assertTrue(self.admin.check_password(self.new_password))
         self.assert_error(self.client.get(self.me_url), 401, "AUTH_REQUIRED")
 
+    def test_current_password_length_limit(self):
+        current = "Aa1!" + "b" * 26
+        self.member.set_password(current)
+        self.member.save(update_fields=["password"])
+        self.assertEqual(self.login_as(self.member, password=current).status_code, 200)
+
+        rejected = self.post_json(self.change_url, {**self.change_data, "current_password": current + "b"})
+        self.assert_error(rejected, 400, "INVALID_INPUT")
+        message = rejected.json()["error"]["fields"]["current_password"][0]
+        self.assertIn("30", message)
+        self.assertRegex(message, r"[가-힣]")
+        accepted = self.post_json(self.change_url, {**self.change_data, "current_password": current})
+        self.assertEqual(accepted.status_code, 204)
+        self.member.refresh_from_db()
+        self.assertTrue(self.member.check_password(self.new_password))
+
     def test_wrong_current_password_changes_nothing_and_keeps_session(self):
         self.client = self.signed_in_client(self.member)
         response = self.post_json(self.change_url, {

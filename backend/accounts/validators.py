@@ -21,6 +21,8 @@ ALLOWED_PASSWORD_CHARACTERS = frozenset(
 def validate_full_name(value):
     if not value or not value.strip():
         raise ValidationError("이름을 입력해 주세요.", code="blank_full_name")
+    if len(value) > 100:
+        raise ValidationError("이름은 100자 이하여야 합니다.", code="max_length")
 
 
 class ServicePasswordValidator:
