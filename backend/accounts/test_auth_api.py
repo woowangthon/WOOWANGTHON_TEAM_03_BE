@@ -50,7 +50,7 @@ class AuthAPITests(TestCase):
         self.assertEqual(response.status_code, 200)
         return response.json()["csrf_token"]
 
-    def post_login(self, username=None, password=None, client=None):
+    def post_login(self, username=None, password=None, client=None, **request_headers):
         client = client or self.client
         return client.post(
             self.login_url,
@@ -60,6 +60,7 @@ class AuthAPITests(TestCase):
             }),
             content_type="application/json",
             HTTP_X_CSRFTOKEN=self.csrf_token(client),
+            **request_headers,
         )
 
     def assert_error(self, response, status, code):
@@ -272,3 +273,72 @@ class AuthAPITests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.cookies[settings.SESSION_COOKIE_NAME]["secure"])
         self.assertTrue(response.cookies[settings.CSRF_COOKIE_NAME]["secure"])
+
+    @override_settings(SESSION_COOKIE_SECURE=True, CSRF_COOKIE_SECURE=True)
+    def test_https_proxy_login_session_and_logout(self):
+        headers = {
+            "HTTP_HOST": "testserver",
+            "HTTP_X_FORWARDED_PROTO": "https",
+            "HTTP_ORIGIN": "https://testserver",
+        }
+        response = self.post_login(**headers)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.wsgi_request.is_secure())
+        self.assertTrue(response.cookies[settings.SESSION_COOKIE_NAME]["secure"])
+        self.assertTrue(response.cookies[settings.CSRF_COOKIE_NAME]["secure"])
+        self.assertEqual(self.client.get(self.me_url, **headers).status_code, 200)
+        response = self.client.post(
+            self.logout_url,
+            HTTP_X_CSRFTOKEN=response.json()["csrf_token"],
+            **headers,
+        )
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(Session.objects.exists())
+
+    def test_https_proxy_rejects_untrusted_and_http_origins(self):
+        for origin in ("https://untrusted.example", "http://testserver"):
+            with self.subTest(origin=origin):
+                response = self.post_login(
+                    HTTP_HOST="testserver", HTTP_X_FORWARDED_PROTO="https", HTTP_ORIGIN=origin,
+                )
+                self.assert_error(response, 403, "CSRF_FAILED")
+        self.assertFalse(Session.objects.exists())
+
+    def test_https_proxy_requires_matching_csrf_cookie_and_token(self):
+        for failure in ("missing_cookie", "missing_token", "invalid_token", "wrong_token"):
+            with self.subTest(failure=failure):
+                client = Client(enforce_csrf_checks=True)
+                token = self.csrf_token(client)
+                headers = {
+                    "HTTP_HOST": "testserver",
+                    "HTTP_X_FORWARDED_PROTO": "https",
+                    "HTTP_ORIGIN": "https://testserver",
+                    "HTTP_X_CSRFTOKEN": token,
+                }
+                if failure == "missing_cookie":
+                    del client.cookies[settings.CSRF_COOKIE_NAME]
+                elif failure == "missing_token":
+                    del headers["HTTP_X_CSRFTOKEN"]
+                elif failure == "invalid_token":
+                    headers["HTTP_X_CSRFTOKEN"] = "invalid"
+                else:
+                    headers["HTTP_X_CSRFTOKEN"] = "a" * 64
+                response = client.post(
+                    self.login_url,
+                    data=json.dumps({"username": self.user.username, "password": self.password}),
+                    content_type="application/json", **headers,
+                )
+                self.assert_error(response, 403, "CSRF_FAILED")
+        self.assertFalse(Session.objects.exists())
+
+    def test_http_proxy_does_not_validate_https_origin(self):
+        response = self.post_login(
+            HTTP_HOST="testserver", HTTP_X_FORWARDED_PROTO="http", HTTP_ORIGIN="https://testserver",
+        )
+        self.assert_error(response, 403, "CSRF_FAILED")
+        self.assertFalse(Session.objects.exists())
+
+    def test_plain_http_same_origin_login(self):
+        response = self.post_login(HTTP_ORIGIN="http://testserver")
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.wsgi_request.is_secure())
