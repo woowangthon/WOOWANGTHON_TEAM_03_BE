@@ -12,6 +12,10 @@ ALLOWED_HOSTS = [
     if host.strip()
 ]
 
+# Nginx가 덮어쓴 HTTPS 정보를 사용해 동일 출처의 CSRF 검증을 수행한다.
+# backend는 외부 직접 접근을 막고, 프록시는 클라이언트의 전달 헤더를 덮어써야 한다.
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",

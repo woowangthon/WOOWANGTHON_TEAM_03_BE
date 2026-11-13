@@ -59,6 +59,19 @@ docker compose exec backend python manage.py test accounts.test_auth_api gateway
 
 로그인·로그아웃 및 요청·PDF 접수 테스트를 실행한다. 마지막에 `OK`가 나오면 통과다. Django는 테스트 전용 DB를 생성하고 실행 후 정리한다. 이 테스트는 실제 AI 서비스 연결이나 관리자 계정 사전 등록 없이 실행할 수 있다.
 
+## HTTPS 프록시 배포 시 확인
+
+Django는 `X-Forwarded-Proto: https`를 HTTPS 요청으로 인식하여 같은 HTTPS 출처의 CSRF 검증을 수행한다. 배포 시 Nginx가 클라이언트의 전달 헤더를 다음과 같이 덮어쓰도록 설정한다.
+
+```nginx
+proxy_set_header Host $host;
+proxy_set_header X-Forwarded-Proto $scheme;
+```
+
+`backend`의 포트는 현재 Compose 설정처럼 `127.0.0.1`에만 연결하고 신뢰하는 프록시를 통해 접근하도록 유지한다. HTTPS 배포에서는 `DJANGO_COOKIE_SECURE=1`과 공개 호스트가 포함된 `DJANGO_ALLOWED_HOSTS`도 설정한다. 프록시 설정을 바꿨다면 `nginx -t`로 확인한 뒤 반영한다. Django 설정 변경은 backend 프로세스 재시작 후 적용된다.
+
+프록시 인증 회귀 검사는 기존 명령 `docker compose exec backend python manage.py test accounts.test_auth_api -v 2`로 실행한다. 동일 출처 HTTPS 로그인·세션 조회·로그아웃과 잘못된 Origin 및 누락·불일치 CSRF 값의 거부를 확인한다.
+
 ## 코드와 데이터 위치
 
 | 경로 | 내용 |
