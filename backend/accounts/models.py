@@ -42,7 +42,11 @@ class User(AbstractUser):
 
     def save(self, *args, **kwargs):
         # save()는 기본적으로 필드 검증을 실행하지 않으므로 프로필 규칙을 검사한다.
+        update_fields = kwargs.get("update_fields")
         for field_name in ("username", "full_name"):
+            # 기존 이름이 100자를 넘어도 로그인·비밀번호 등 다른 필드는 갱신할 수 있다.
+            if update_fields is not None and field_name not in update_fields:
+                continue
             field = self._meta.get_field(field_name)
             field.clean(getattr(self, field_name), self)
         database = kwargs.get("using") or router.db_for_write(type(self), instance=self)

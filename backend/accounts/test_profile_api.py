@@ -218,6 +218,26 @@ class NameAPITests(TestCase):
         self.assertFalse(self.member.is_superuser)
         self.assertEqual(list(self.member.groups.values_list("name", flat=True)), [USER_GROUP_NAME])
 
+    def test_full_name_length_limit_on_profile_updates(self):
+        name = "가" * 100
+        for actor, url in ((self.member, self.own_url), (self.admin, self.admin_url)):
+            with self.subTest(url=url):
+                self.login_as(actor)
+                self.assertEqual(self.patch_json(url, {"full_name": name}).status_code, 200)
+                rejected = self.patch_json(url, {"full_name": name + "나"})
+                self.assert_error(rejected, 400, "INVALID_INPUT")
+                self.assertIn("full_name", rejected.json()["error"]["fields"])
+                self.member.refresh_from_db()
+                self.assertEqual(self.member.full_name, name)
+
+    def test_user_with_legacy_long_name_can_log_in_and_shorten_it(self):
+        get_user_model().objects.filter(pk=self.member.pk).update(full_name="가" * 101)
+        self.login_as(self.member)
+        response = self.patch_json(self.own_url, {"full_name": "변경한 이름"})
+        self.assertEqual(response.status_code, 200)
+        self.member.refresh_from_db()
+        self.assertEqual(self.member.full_name, "변경한 이름")
+
     def test_same_name_and_unicode_name_are_accepted_without_trimming(self):
         for actor, url in ((self.member, self.own_url), (self.admin, self.admin_url)):
             self.login_as(actor)

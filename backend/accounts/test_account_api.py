@@ -193,6 +193,18 @@ class CreateUserAPITests(TestCase):
                 self.assertIn(field, response.json()["error"]["fields"])
         self.assertEqual(get_user_model().objects.count(), 2)
 
+    def test_full_name_length_limit(self):
+        self.login_as(self.admin)
+        name = "가" * 100
+        rejected = self.create_account({**self.payload, "full_name": name + "나"})
+        self.assert_error(rejected, 400, "INVALID_INPUT")
+        self.assertIn("full_name", rejected.json()["error"]["fields"])
+        self.assertFalse(get_user_model().objects.filter(username=self.payload["username"]).exists())
+
+        accepted = self.create_account({**self.payload, "full_name": name})
+        self.assertEqual(accepted.status_code, 201)
+        self.assertEqual(get_user_model().objects.get(username=self.payload["username"]).full_name, name)
+
     def test_password_policy_applies_to_creation(self):
         self.login_as(self.admin)
         for password in (
