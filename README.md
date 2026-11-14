@@ -84,14 +84,45 @@ proxy_set_header X-Forwarded-Proto $scheme;
 
 프록시 인증 회귀 검사는 기존 명령 `docker compose exec backend python manage.py test accounts.test_auth_api -v 2`로 실행한다. 동일 출처 HTTPS 로그인·세션 조회·로그아웃과 잘못된 Origin 및 누락·불일치 CSRF 값의 거부를 확인한다.
 
-## 코드와 데이터 위치
+## 파일 구조
 
-| 경로 | 내용 |
-| --- | --- |
-| `backend/accounts/` | 세션 인증, 서비스 권한, 계정 발급·변경 |
-| `backend/gateway/` | 요청·PDF 접수, AI 처리 연결, 승인, 이용 이력·통계 |
-| `backend/config/` | Django 설정과 URL 구성 |
-| `backend/scripts/` | 배포된 API의 동작 확인 스크립트 |
-| `docs/` | 요청 접수와 AI 처리 흐름에 관한 개발 문서 |
+```text
+WOOWANGTHON_TEAM_03_BE/
+├─ compose.yaml, Dockerfile       Django(backend)와 PostgreSQL(db) 컨테이너 구성
+├─ requirements.txt               Python 의존성
+├─ docs/                          요청 접수 API, AI 처리 흐름 개발 문서
+└─ backend/
+   ├─ manage.py
+   ├─ config/                     Django 설정(settings.py)과 URL 구성(urls.py)
+   ├─ accounts/                   계정과 권한
+   │  ├─ views.py                 세션 로그인·로그아웃·현재 사용자 API
+   │  ├─ account_views.py         관리자의 일반 사용자 목록·검색·발급
+   │  ├─ profile_views.py         이름 변경 (본인, 관리자)
+   │  ├─ password_views.py        본인 비밀번호 변경, 관리자 비밀번호 재설정
+   │  ├─ deactivation_views.py    사용자 비활성화 (계정과 이력은 삭제하지 않음)
+   │  ├─ permissions.py, roles.py API 권한 검사, Django Group 기반 역할
+   │  └─ management/commands/     초기 관리자·권한 그룹 등록 명령
+   ├─ gateway/                    요청 처리
+   │  ├─ models.py                요청·문서·민감정보 저장 구조
+   │  ├─ views.py                 PDF·요청 접수와 본인 조회 API (완성 답변만 제공)
+   │  ├─ intake_service.py        접수와 준비 단계 수정
+   │  ├─ intake_validation.py     입력과 PDF 구조 검증
+   │  ├─ pdf.py                   PDF 원본에서 검사용 글자 추출
+   │  ├─ storage.py, uploads.py   비공개 PDF 저장소, 업로드 크기 제한
+   │  ├─ processing.py            모델 서비스로 검사·답변하고 결과 저장
+   │  ├─ model_client.py          연구실 PC 모델 서비스 호출 클라이언트
+   │  ├─ processing_views.py      처리 시작 API
+   │  ├─ approval_preview.py      승인 대기 의뢰의 검사 원문·탐지 구간 조회
+   │  ├─ approval_decision.py     외부 전송 승인·거절 기록
+   │  ├─ approval_lifecycle.py    승인 대기 전환과 30분 기한 만료
+   │  ├─ request_list.py          본인 이력 목록
+   │  ├─ request_visibility.py    본인 이력 숨김
+   │  ├─ admin_*.py               관리자 감사 목록·상세·통계 (AI 답변은 조회하지 않음)
+   │  ├─ management/commands/     process_requests(대기 의뢰 처리), expire_approvals(만료 정리)
+   │  └─ testdata/                모델 서비스 응답 예시(JSON)
+   └─ scripts/                    배포 서버의 인증·접수·전체 처리 흐름 확인 스크립트
+```
+
+테스트는 `backend/accounts/`(8개)와 `backend/gateway/`(17개)의 `test_*.py` 파일에 있다.
 
 요청과 처리 결과는 PostgreSQL에 저장하고, PDF 원본은 별도의 비공개 볼륨에 보관한다. 개발을 마칠 때 `docker compose down`으로 컨테이너를 종료하면 다음 실행에도 두 볼륨의 데이터가 유지된다.
