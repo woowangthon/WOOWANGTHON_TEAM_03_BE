@@ -1,8 +1,8 @@
 # 마스크 어시스턴트(Mask Assistant) · 백엔드
 
-충북대학교 2026 AI 우왕톤 3팀 ‘초코 츄러스’가 만든 ‘마스크 어시스턴트(Mask Assistant)’의 백엔드다. 마스크 어시스턴트는 외부 AI 사용이 막힌 회사에서 직원의 AI 요청을 먼저 검사해 민감정보를 가리고, 직원이 확인한 뒤에만 외부 AI로 보내는 서비스다. 이 저장소는 Django REST Framework로 요청 접수, AI 처리 상태, 사용자 승인 및 이용 이력을 제공한다.
+충북대학교 2026 AI 우왕톤 3팀 ‘초코 츄러스’가 만든 ‘마스크 어시스턴트(Mask Assistant)’의 백엔드다. 마스크 어시스턴트는 개발팀과 보안팀을 따로 두기 어려운 중소 제조기업을 위한 AI 동료다. 직원의 AI 요청을 먼저 검사해 민감정보를 가리고, 직원이 확인한 뒤에만 외부 AI로 보낸다. 이 저장소는 Django REST Framework로 요청 접수, AI 처리 상태, 사용자 승인 및 이용 이력을 제공한다.
 
-프로젝트 전체 소개(문제와 근거, 기존 방식과의 비교, 구조, 기술 선택 이유, 검증 결과)는 [FE 저장소 README](https://github.com/woowangthon/WOOWANGTHON_TEAM_03_FE#readme)에 있다.
+프로젝트 전체 소개(문제와 근거, 기존 서비스와의 비교, 구조, 기술 선택 이유, 검증 결과)는 [FE 저장소 README](https://github.com/woowangthon/WOOWANGTHON_TEAM_03_FE#readme)에 있다.
 
 | 항목 | 링크 |
 | --- | --- |
